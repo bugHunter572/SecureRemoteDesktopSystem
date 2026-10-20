@@ -1,5 +1,7 @@
 # Auto-update plan (Windows client, server, observer)
 
+> Status: implemented (srd-common `com.srd.common.update`, `.github/workflows/release.yml`, `apply-update.ps1`). Remaining one-time setup: add the repo secret `SRD_UPDATE_PRIVATE_KEY`. Differences from the plan: manifests are signed `.properties` files instead of JSON; the swap helper is a PowerShell script, not a separate exe.
+
 Goal: push a version tag to GitHub and every client, the server and the observer update themselves.
 
 ## Scope and branches

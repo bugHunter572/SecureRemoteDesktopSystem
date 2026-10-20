@@ -150,6 +150,23 @@ public final class ClientApp {
         }, "shutdown"));
 
         Threads.scheduler().scheduleWithFixedDelay(ClientApp::refreshTray, 5, 5, TimeUnit.SECONDS);
+
+        com.srd.common.update.UpdateService.start(new com.srd.common.update.UpdateService.Host() {
+            @Override
+            public String app() {
+                return "client";
+            }
+
+            @Override
+            public String exeName() {
+                return EXE_NAME;
+            }
+
+            @Override
+            public void exitForUpdate() {
+                ClientApp.exitForUpdate();
+            }
+        });
     }
 
     // ------------------------------------------------------------------ macOS permissions
@@ -717,6 +734,14 @@ public final class ClientApp {
     }
 
     // ------------------------------------------------------------------ process management
+
+    /** Quits without relaunching: the update script swaps the exe and starts the new version. */
+    private static void exitForUpdate() {
+        ServerLinks.stopAll();
+        if (peerHost != null) peerHost.stop();
+        releaseSingleInstance();
+        System.exit(0);
+    }
 
     /** The tray "Exit" restarts the agent (it is meant to keep running), exactly as before. */
     private static void restartSelf() {
