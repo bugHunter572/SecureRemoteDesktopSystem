@@ -63,6 +63,20 @@ Until then, the server lists v2 PCs as **Outdated client**.
 
 Stop the app, replace the exe (and `jre\` if it is in the zip), and start it again. Config, database and logs are kept.
 
+**Automatic updates (Windows exe builds).** Client, server and observer check
+`https://github.com/bugHunter572/SecureRemoteDesktopSystem/releases/latest/download/update-<app>.properties`
+about every 4 hours. The manifest is signed (Ed25519); the app verifies the signature, the package hash and size,
+downloads the zip, exits, and `updatepply-update.ps1` swaps the exe (and `jre\` if changed). Config, database
+and logs are never touched. If the new version is not healthy 60 s after start, the previous files are restored
+and that version is not retried. The server waits while a recording is running. Log: `updatepply.log`.
+
+Optional `update.properties` next to the exe: `update.enabled=false`, `update.baseUrl=...`, `update.intervalMinutes=240`.
+
+**Releasing:** set the version in all `pom.xml` files (and `launch4j*.xml`), merge `main` into `observer-server`, then
+push the tag (`git tag v3.0.7 && git push origin v3.0.7`). The `release` workflow builds, signs and publishes. The
+repo secret `SRD_UPDATE_PRIVATE_KEY` must hold the signing key; its public half is
+`srd-common/src/main/resources/update-public-key.b64`. A new `ffmpeg.exe` is not in the release zips: existing installs keep theirs.
+
 ## 6. Uninstall (client)
 
 1. Create `.client-stop` in the client folder and end the process.

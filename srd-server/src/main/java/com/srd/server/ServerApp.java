@@ -84,8 +84,33 @@ public final class ServerApp {
                 ServerWindow window = new ServerWindow(controller, controller.notificationsOn());
                 controller.attach(window, rows);
                 window.open();
+                startAutoUpdate(controller);
             } catch (Exception e) {
                 Log.error("Error initializing server window", e);
+            }
+        });
+    }
+
+    private static void startAutoUpdate(ServerController controller) {
+        com.srd.common.update.UpdateService.start(new com.srd.common.update.UpdateService.Host() {
+            @Override
+            public String app() {
+                return "server";
+            }
+
+            @Override
+            public String exeName() {
+                return "SecureRemoteDesktopServer.exe";
+            }
+
+            @Override
+            public boolean canRestartNow() {
+                return !controller.hasActiveRecordings();
+            }
+
+            @Override
+            public void exitForUpdate() {
+                SwingUtilities.invokeLater(controller::exit);
             }
         });
     }

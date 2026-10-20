@@ -1,0 +1,97 @@
+name: release
+
+# Push a tag like v3.0.7 (it must equal the version in pom.xml) to build, sign and publish
+# the client, server and observer. Running apps pick it up from
+# https://github.com/<repo>/releases/latest/download/update-<app>.properties
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      LAUNCH4J_HOME: C:\Program Files (x86)\Launch4j
+    steps:
+      - name: Check out main (client + server)
+        uses: actions/checkout@v4
+        with:
+          path: main
+          ref: main
+
+      - name: Check out observer-server (observer)
+        uses: actions/checkout@v4
+        with:
+          path: observer
+          ref: observer-server
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: main/pom.xml
+
+      - name: Install Launch4j
+        shell: pwsh
+        run: choco install launch4j -y --no-progress
+
+      - name: Tag must match the pom version on both branches
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          foreach ($d in 'main', 'observer') {
+            [xml]$pom = Get-Content "$d/pom.xml"
+            if ($pom.project.version -ne $tag) { throw "$d/pom.xml is $($pom.project.version), tag is $tag" }
+          }
+
+      - name: Build client and server zips
+        shell: pwsh
+        working-directory: main
+        run: powershell -ExecutionPolicy Bypass -File build\build-exe.ps1 -Online -BundleJre -Package
+
+      - name: Build observer zip
+        shell: pwsh
+        working-directory: observer
+        run: powershell -ExecutionPolicy Bypass -File build\build-exe.ps1 -Online -BundleJre -Package -Only observer
+
+      - name: Write and sign manifests
+        shell: pwsh
+        env:
+          SRD_UPDATE_PRIVATE_KEY: ${{ secrets.SRD_UPDATE_PRIVATE_KEY }}
+        run: |
+          if (-not $env:SRD_UPDATE_PRIVATE_KEY) { throw 'secret SRD_UPDATE_PRIVATE_KEY is not set' }
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          $repo = '${{ github.repository }}'
+          $tag = '${{ github.ref_name }}'
+          New-Item -ItemType Directory -Force release | Out-Null
+          $cp = 'main/srd-common/target/classes'
+          $apps = @(
+            @{ App = 'client';   Name = 'SecureRemoteDesktopClient';   Dist = 'main/dist' },
+            @{ App = 'server';   Name = 'SecureRemoteDesktopServer';   Dist = 'main/dist' },
+            @{ App = 'observer'; Name = 'SecureRemoteDesktopObserver'; Dist = 'observer/dist' }
+          )
+          foreach ($a in $apps) {
+            $zipName = "$($a.Name)-$ver-win64.zip"
+            $zip = Join-Path $a.Dist $zipName
+            if (-not (Test-Path $zip)) { throw "missing $zip" }
+            Copy-Item $zip release
+            $mf = "release/update-$($a.App).properties"
+            $url = "https://github.com/$repo/releases/download/$tag/$zipName"
+            java -cp $cp com.srd.common.update.UpdateTool manifest $a.App $ver (Join-Path 'release' $zipName) $url $mf
+            if ($LASTEXITCODE -ne 0) { throw "manifest failed for $($a.App)" }
+            java -cp $cp com.srd.common.update.UpdateTool sign $mf
+            if ($LASTEXITCODE -ne 0) { throw "sign failed for $($a.App)" }
+          }
+          Get-ChildItem release | Format-Table Name, Length
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' release/* --repo '${{ github.repository }}' `
+            --title '${{ github.ref_name }}' --generate-notes

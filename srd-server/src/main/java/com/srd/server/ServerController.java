@@ -1100,6 +1100,11 @@ public final class ServerController implements ClientListener.Handler, SessionEv
         for (String key : recorders.keySet()) if (!key.startsWith(PEER_KEY_PREFIX)) window.setRecording(key, true);
     }
 
+    /** True while any recording is running (an update restart would lose it). */
+    public boolean hasActiveRecordings() {
+        return !recorders.isEmpty();
+    }
+
     public void exit() {
         Log.info("Server exiting");
         if (notifier != null) notifier.stop();

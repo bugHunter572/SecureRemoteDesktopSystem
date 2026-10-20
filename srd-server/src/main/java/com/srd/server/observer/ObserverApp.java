@@ -53,8 +53,28 @@ public final class ObserverApp {
                 String err = controller.setBroadcast(true); // always on
                 if (err != null) Log.warn("Broadcasting this screen is not available: " + err);
                 window.setVisible(true);
+                startAutoUpdate();
             } catch (Exception e) {
                 Log.error("Error starting the observer window", e);
+            }
+        });
+    }
+
+    private static void startAutoUpdate() {
+        com.srd.common.update.UpdateService.start(new com.srd.common.update.UpdateService.Host() {
+            @Override
+            public String app() {
+                return "observer";
+            }
+
+            @Override
+            public String exeName() {
+                return "SecureRemoteDesktopObserver.exe";
+            }
+
+            @Override
+            public void exitForUpdate() {
+                System.exit(0);
             }
         });
     }
