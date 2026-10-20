@@ -46,6 +46,10 @@ public final class ServerApp {
     }
 
     public static void main(String[] args) {
+        if (args.length > 0 && "--observer".equalsIgnoreCase(args[0])) {
+            com.srd.server.observer.ObserverApp.main(args); // watch-only alternative server (own exe, folder and log)
+            return;
+        }
         Log.init(new File("logs"), "server", 10_000_000, 5);
         Log.info("Secure Remote Desktop Server " + VERSION + " (updated " + com.srd.common.util.BuildInfo.BUILT + ") starting in " + System.getProperty("user.dir")
                 + " (Java " + System.getProperty("java.version") + ", " + Os.describe() + ")");

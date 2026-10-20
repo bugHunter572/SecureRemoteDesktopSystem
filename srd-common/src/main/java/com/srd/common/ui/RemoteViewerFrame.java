@@ -64,6 +64,7 @@ public class RemoteViewerFrame extends JFrame {
     private static final int PEEK = 6;
 
     private final ViewerSession session;
+    private final boolean viewOnly;
     private final JPanel bar = new BarPanel();
     private final PenToolbar penBar;
     private final JLayeredPane layers;
@@ -82,7 +83,16 @@ public class RemoteViewerFrame extends JFrame {
     private boolean reconfiguring;
 
     public RemoteViewerFrame(ViewerSession session, String title) {
+        this(session, title, false);
+    }
+
+    /**
+     * @param viewOnly watch only: no tool bar, no drawing, no screenshots; the window opens maximized,
+     *                 F11 or a double-click toggles full screen. Control and audio are never switched on.
+     */
+    public RemoteViewerFrame(ViewerSession session, String title, boolean viewOnly) {
         super(title);
+        this.viewOnly = viewOnly;
         this.session = session;
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         setSize(1280, 800);
@@ -97,7 +107,7 @@ public class RemoteViewerFrame extends JFrame {
         scroll.getVerticalScrollBar().setUnitIncrement(32);
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(scroll, BorderLayout.CENTER);
-        panel.setScreenshotHotkey(this::saveScreenshot);
+        if (!viewOnly) panel.setScreenshotHotkey(this::saveScreenshot);
 
         // ---- control bar ----
         penToggle = new JToggleButton(new GlyphIcon(GlyphIcon.PEN, false));
@@ -176,8 +186,10 @@ public class RemoteViewerFrame extends JFrame {
         penBar.setVisible(false);
 
         layers = getLayeredPane();
-        layers.add(bar, JLayeredPane.PALETTE_LAYER);
-        layers.add(penBar, JLayeredPane.PALETTE_LAYER);
+        if (!viewOnly) {
+            layers.add(bar, JLayeredPane.PALETTE_LAYER);
+            layers.add(penBar, JLayeredPane.PALETTE_LAYER);
+        }
 
         barAnim = new Timer(15, e -> animateBar());
         barAutoHide = new Timer(2500, e -> collapseBarIfIdle());
@@ -214,12 +226,17 @@ public class RemoteViewerFrame extends JFrame {
             }
         });
 
+        if (viewOnly) installViewOnlyBehavior(panel);
         java.util.function.Consumer<ScreenInfo> screenListener = si -> SwingUtilities.invokeLater(() -> updateMonitors(si));
         session.addScreenInfoListener(screenListener);
 
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowOpened(WindowEvent e) {
+                if (viewOnly) {
+                    panel.requestFocusInWindow();
+                    return;
+                }
                 layoutBars();
                 barAutoHide.restart();
                 panel.requestFocusInWindow();
@@ -239,6 +256,25 @@ public class RemoteViewerFrame extends JFrame {
 
     public ViewerSession session() {
         return session;
+    }
+
+    /** Watch-only extras: maximized start, F11 / double-click full screen. Called by the constructor. */
+    private void installViewOnlyBehavior(RemoteScreenPanel panel) {
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        javax.swing.KeyStroke f11 = javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F11, 0);
+        getRootPane().getInputMap(javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW).put(f11, "fullscreen");
+        getRootPane().getActionMap().put("fullscreen", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                toggleFullScreen();
+            }
+        });
+        panel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) toggleFullScreen();
+            }
+        });
     }
 
     /** Runs once when the window is closed (the owner closes the session/connection). */
@@ -433,6 +469,7 @@ public class RemoteViewerFrame extends JFrame {
     // ------------------------------------------------------------------ bar layout & animation
 
     private void layoutBars() {
+        if (viewOnly) return;
         Dimension d = bar.getPreferredSize();
         int x = (layers.getWidth() - d.width) / 2;
         int collapsedY = -(d.height - PEEK);
@@ -449,6 +486,7 @@ public class RemoteViewerFrame extends JFrame {
     }
 
     private void expandBar() {
+        if (viewOnly) return;
         barAutoHide.stop();
         if (!barExpanded) {
             barExpanded = true;

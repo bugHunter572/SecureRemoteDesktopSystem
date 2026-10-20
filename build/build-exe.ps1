@@ -20,7 +20,7 @@
 #>
 param(
     [switch]$SkipTests,
-    [ValidateSet('all', 'client', 'server')][string]$Only = 'all',
+    [ValidateSet('all', 'client', 'server', 'observer')][string]$Only = 'all',
     [switch]$BundleJre,
     [switch]$Package,
     [string]$Launch4jHome = $(if ($env:LAUNCH4J_HOME) { $env:LAUNCH4J_HOME } else { 'C:\Program Files (x86)\Launch4j' }),
@@ -37,7 +37,9 @@ $version = $pom.project.version
 
 $apps = @()
 if ($Only -in 'all', 'client') { $apps += @{ Module = 'srd-client'; Exe = 'SecureRemoteDesktopClient.exe'; Name = 'SecureRemoteDesktopClient' } }
-if ($Only -in 'all', 'server') { $apps += @{ Module = 'srd-server'; Exe = 'SecureRemoteDesktopServer.exe'; Name = 'SecureRemoteDesktopServer' } }
+if ($Only -in 'all', 'server') { $apps += @{ Module = 'srd-server'; Exe = 'SecureRemoteDesktopServer.exe'; Name = 'SecureRemoteDesktopServer'; Config = 'launch4j.xml' } }
+# Watch-only alternative server: same jar, started with --observer (see srd-server\launch4j-observer.xml).
+if ($Only -in 'all', 'observer') { $apps += @{ Module = 'srd-server'; Exe = 'SecureRemoteDesktopObserver.exe'; Name = 'SecureRemoteDesktopObserver'; Config = 'launch4j-observer.xml' } }
 
 # An exe (or its bundled jre) that is running can't be overwritten.
 foreach ($a in $apps) {
@@ -47,7 +49,7 @@ foreach ($a in $apps) {
 }
 
 # ---- 1. Maven
-$modules = @($apps | ForEach-Object { $_.Module }) + 'srd-common'
+$modules = (@($apps | ForEach-Object { $_.Module }) + 'srd-common') | Select-Object -Unique
 $mvnArgs = @('-f', (Join-Path $root 'pom.xml'), 'clean', 'package', '-pl', ($modules -join ','), '-am')
 if (-not $Online) { $mvnArgs = @('-o') + $mvnArgs }
 if ($SkipTests) { $mvnArgs += '-DskipTests' }
@@ -57,7 +59,8 @@ if ($LASTEXITCODE -ne 0) { throw "Maven build failed ($LASTEXITCODE)" }
 
 # ---- 2. launch4j
 foreach ($a in $apps) {
-    $cfg = Join-Path $root "$($a.Module)\launch4j.xml"
+    $cfgName = if ($a.Config) { $a.Config } else { 'launch4j.xml' }
+    $cfg = Join-Path $root "$($a.Module)\$cfgName"
     Write-Host "==> launch4jc $cfg" -ForegroundColor Cyan
     & $launch4jc $cfg
     if ($LASTEXITCODE -ne 0) { throw "launch4j failed for $($a.Module) ($LASTEXITCODE)" }
@@ -95,7 +98,7 @@ if ($Package) {
         $out = Join-Path $stage $a.Name
         Copy-Item (Join-Path $bin $a.Exe) $out
         if (Test-Path (Join-Path $bin 'jre')) { Copy-Item -Recurse (Join-Path $bin 'jre') $out }
-        if ($a.Module -eq 'srd-server' -and (Test-Path (Join-Path $bin 'ffmpeg.exe'))) { Copy-Item (Join-Path $bin 'ffmpeg.exe') $out }
+        if ($a.Name -eq 'SecureRemoteDesktopServer' -and (Test-Path (Join-Path $bin 'ffmpeg.exe'))) { Copy-Item (Join-Path $bin 'ffmpeg.exe') $out }
         Copy-Item (Join-Path $root 'CHANGELOG.md') $out
         $zip = Join-Path $dist "$($a.Name)-$version-win64.zip"
         if (Test-Path $zip) { Remove-Item -Force $zip }

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Watch-only alternative server: the same jar started with the observer switch. Paths are relative to this file's directory (srd-server/). Build the jar first:
+     mvn -o clean package -pl srd-server -DskipTests   then   launch4jc.exe srd-server\launch4j.xml -->
+<launch4jConfig>
+  <dontWrapJar>false</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>target\SecureRemoteDesktopServer.jar</jar>
+  <outfile>bin\SecureRemoteDesktopObserver.exe</outfile>
+  <errTitle>Secure Remote Desktop Observer</errTitle>
+  <cmdLine>--observer</cmdLine>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <downloadUrl></downloadUrl>
+  <supportUrl></supportUrl>
+  <stayAlive>true</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <manifest></manifest>
+  <icon>src\main\resources\icons\server-icon.ico</icon>
+  <jre>
+    <path>jre;%JAVA_HOME%;%PATH%</path>
+    <requiresJdk>false</requiresJdk>
+    <requires64Bit>false</requires64Bit>
+    <minVersion>17</minVersion>
+    <maxVersion></maxVersion>
+    <opt>-Xms128m</opt>
+    <opt>-Xmx512m</opt>
+  </jre>
+</launch4jConfig>

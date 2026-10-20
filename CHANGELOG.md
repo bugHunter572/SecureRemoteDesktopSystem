@@ -2,6 +2,27 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
+## [Unreleased - observer-server branch]
+
+### Added
+- **Observer** (`SecureRemoteDesktopObserver.exe`, own zip): a watch-only alternative server. No menu bar, no
+  database, no saved screenshots, no recording, no alerts. It shows the clients' latest pictures; double-click
+  a tile for a watch-only window (maximized, F11 or double-click for full screen; no tool bar, no control, no
+  audio, no drawing or screenshots). It sends clients nothing but the picture interval, so it can't change
+  the main server's settings. Settings in `observer.properties` (psk, port, interval, thumbnail width).
+- Observer: same view as the main server (thumbnails left, table right, 60:40; double-click a tile or row for
+  the watch-only window). It always broadcasts its own screen automatically (no checkbox): other PCs connect
+  to the peer port (`peerPort`, default 2583), view only: no control, no drawing, no audio.
+- Observer: bottom buttons like the main server: Start Recording / Stop Recording (selected client, saved under
+  `Recordings/`) and "Show thumbnails full width".
+- **Sync to Alternative Servers** (main server: Edit menu): sends the client list (names) and the tag ranges to every
+  server under Alternative IPs. The observer (`syncPort`, default 2585, protected by the same PSK) shows every listed
+  client, offline until it connects, under the main server's name, and keeps the list in `synced-clients.properties`.
+- Notification Settings: Tags by IP range is now a table (Tag, From IP, To IP) with Add / Remove.
+- Mattermost: a PC that stays "ScreenApp Disconnected" is posted again every N seconds (Notification Settings; default = the screen interval, 0 = once).
+- Notification Settings: "Send test message" sits beside the Server URL.
+
+
 ## [3.0.6] - 2026-10-17
 
 ### Fixed

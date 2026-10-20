@@ -76,6 +76,10 @@ public final class ThumbnailPanel extends JPanel {
         return clientId;
     }
 
+    public String displayName() {
+        return displayName;
+    }
+
     public BufferedImage getImage() {
         return image;
     }
