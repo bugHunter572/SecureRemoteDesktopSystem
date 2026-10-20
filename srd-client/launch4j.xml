@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Paths are relative to this file. Build with build\build-exe.ps1 (runs mvn package first). -->
+<launch4jConfig>
+  <dontWrapJar>false</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>target\SecureRemoteDesktopClient.jar</jar>
+  <outfile>bin\SecureRemoteDesktopClient.exe</outfile>
+  <errTitle>Secure Remote Desktop Client</errTitle>
+  <cmdLine></cmdLine>
+  <chdir>.</chdir>
+  <priority>high</priority>
+  <downloadUrl>https://adoptium.net/</downloadUrl>
+  <supportUrl></supportUrl>
+  <!-- Wait for the JVM: the watchdog script relaunches the exe when it exits. With
+       stayAlive=false the exe returned immediately and the watchdog spawned a new JVM every 5 s. -->
+  <stayAlive>true</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <manifest></manifest>
+  <icon>src\main\resources\icons\computer-mouse.ico</icon>
+  <jre>
+    <path>jre;%JAVA_HOME%;%PATH%</path>
+    <requiresJdk>false</requiresJdk>
+    <requires64Bit>false</requires64Bit>
+    <minVersion>11</minVersion>
+    <maxVersion></maxVersion>
+    <initialHeapSize>128</initialHeapSize>
+    <maxHeapSize>768</maxHeapSize>
+    <opt>-XX:+UseG1GC</opt>
+    <opt>-XX:MaxGCPauseMillis=10</opt>
+  </jre>
+  <versionInfo>
+    <fileVersion>3.0.6.0</fileVersion>
+    <txtFileVersion>3.0.6</txtFileVersion>
+    <fileDescription>Secure Remote Desktop Client</fileDescription>
+    <copyright>2026</copyright>
+    <productVersion>3.0.6.0</productVersion>
+    <txtProductVersion>3.0.6</txtProductVersion>
+    <productName>SecureRemoteDesktop</productName>
+    <companyName></companyName>
+    <internalName>SecureRemoteDesktopClient</internalName>
+    <originalFilename>SecureRemoteDesktopClient.exe</originalFilename>
+  </versionInfo>
+</launch4jConfig>

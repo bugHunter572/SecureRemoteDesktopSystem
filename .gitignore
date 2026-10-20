@@ -1,0 +1,41 @@
+# Build output
+target/
+dependency-reduced-pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Runtime data written next to the executables (bin/ = runtime working dirs)
+*/bin/*.exe
+*/bin/*.l4j.ini
+*/bin/logs/
+*/bin/*.log
+*/bin/*.db
+*/bin/*.db-journal
+*/bin/*.lock
+*/bin/.client-stop
+*/bin/client-config.properties
+*/bin/client-watchdog.vbs
+*/bin/Screenshots/
+*/bin/Recordings/
+*/bin/recording_*/
+*/bin/recording_*.mp4
+*/bin/PeerCaptures/
+*/bin/interval.txt
+*/bin/ffmpeg.exe
+Thumbs.db
+
+# Generated runtime + release zips (build\build-exe.ps1 -BundleJre -Package)
+dist/
+build/jre/
+*/bin/jre/
+
+# Build download cache
+build/.cache/
+
+# Local tooling / logs
+.claude/
+*.log
+*.tmp
