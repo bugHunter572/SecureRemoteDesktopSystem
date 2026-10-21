@@ -39,6 +39,12 @@ jobs:
         shell: pwsh
         run: choco install launch4j -y --no-progress
 
+      - name: Point Launch4j at Java 8 (its launcher cannot read newer JDK versions)
+        shell: pwsh
+        run: |
+          if (-not $env:JAVA_HOME_8_X64) { throw 'no preinstalled Java 8 on this runner' }
+          "LAUNCH4J_JAVA_HOME=$env:JAVA_HOME_8_X64" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       - name: Tag must match the pom version on both branches
         shell: pwsh
         run: |
