@@ -62,10 +62,10 @@ foreach ($a in $apps) {
     $cfgName = if ($a.Config) { $a.Config } else { 'launch4j.xml' }
     $cfg = Join-Path $root "$($a.Module)\$cfgName"
     Write-Host "==> launch4jc $cfg" -ForegroundColor Cyan
-    # CI sets LAUNCH4J_JAVA_HOME (Java 8): launch4jc.exe cannot find a JRE there, so run the jar it wraps.
+    # CI (CI=true): run the jar of the unpacked Launch4j 3.50 zip; launch4jc.exe needs a registered JRE.
     $l4jJar = Join-Path $Launch4jHome 'launch4j.jar'
-    if ($env:LAUNCH4J_JAVA_HOME -and (Test-Path $l4jJar)) {
-        & (Join-Path $env:LAUNCH4J_JAVA_HOME 'bin\java.exe') -jar $l4jJar $cfg
+    if ($env:CI -and (Test-Path $l4jJar)) {
+        & java -jar $l4jJar $cfg
     } else {
         & $launch4jc $cfg
     }
