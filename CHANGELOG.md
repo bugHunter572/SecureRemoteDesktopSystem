@@ -2,7 +2,7 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
-## [Unreleased]
+## [3.0.7] - 2026-10-21
 
 ### Added
 - **Automatic updates for the Windows client, server and observer.** Signed release manifests (Ed25519), SHA-256
