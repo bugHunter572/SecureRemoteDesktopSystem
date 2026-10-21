@@ -59,10 +59,13 @@ if ($LASTEXITCODE -ne 0) { throw "Maven build failed ($LASTEXITCODE)" }
 foreach ($a in $apps) {
     $cfg = Join-Path $root "$($a.Module)\launch4j.xml"
     Write-Host "==> launch4jc $cfg" -ForegroundColor Cyan
-    # launch4jc's own launcher can't parse the version of a new JDK; CI points LAUNCH4J_JAVA_HOME at Java 8.
-    $savedJavaHome = $env:JAVA_HOME; $savedPath = $env:PATH
-    if ($env:LAUNCH4J_JAVA_HOME) { $env:JAVA_HOME = $env:LAUNCH4J_JAVA_HOME; $env:PATH = "$($env:LAUNCH4J_JAVA_HOME)in;$env:PATH" }
-    try { & $launch4jc $cfg } finally { $env:JAVA_HOME = $savedJavaHome; $env:PATH = $savedPath }
+    # CI sets LAUNCH4J_JAVA_HOME (Java 8): launch4jc.exe cannot find a JRE there, so run the jar it wraps.
+    $l4jJar = Join-Path $Launch4jHome 'launch4j.jar'
+    if ($env:LAUNCH4J_JAVA_HOME -and (Test-Path $l4jJar)) {
+        & (Join-Path $env:LAUNCH4J_JAVA_HOME 'bin\java.exe') -jar $l4jJar $cfg
+    } else {
+        & $launch4jc $cfg
+    }
     if ($LASTEXITCODE -ne 0) { throw "launch4j failed for $($a.Module) ($LASTEXITCODE)" }
 }
 
