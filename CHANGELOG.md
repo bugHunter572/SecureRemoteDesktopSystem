@@ -2,7 +2,7 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
-## [Unreleased - observer-server branch]
+## [3.0.7] - 2026-10-21 (observer)
 
 ### Added
 - **Observer** (`SecureRemoteDesktopObserver.exe`, own zip): a watch-only alternative server. No menu bar, no
@@ -22,7 +22,7 @@ All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 - Mattermost: a PC that stays "ScreenApp Disconnected" is posted again every N seconds (Notification Settings; default = the screen interval, 0 = once).
 - Notification Settings: "Send test message" sits beside the Server URL.
 
-## [Unreleased]
+## [3.0.7] - 2026-10-21
 
 ### Added
 - **Automatic updates for the Windows client, server and observer.** Signed release manifests (Ed25519), SHA-256
