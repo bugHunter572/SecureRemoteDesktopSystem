@@ -2,7 +2,7 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
-## [Unreleased]
+## [3.0.9] - 2026-10-23
 
 ### Added
 - **Automatic updates for the macOS client.** The Mac app checks the latest release, downloads the

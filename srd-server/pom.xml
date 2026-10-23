@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.srd</groupId>
         <artifactId>secure-remote-desktop</artifactId>
-        <version>3.0.7</version>
+        <version>3.0.9</version>
     </parent>
 
     <artifactId>srd-server</artifactId>

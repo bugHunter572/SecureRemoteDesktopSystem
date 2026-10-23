@@ -29,12 +29,12 @@
     <opt>-XX:MaxGCPauseMillis=10</opt>
   </jre>
   <versionInfo>
-    <fileVersion>3.0.7.0</fileVersion>
-    <txtFileVersion>3.0.7</txtFileVersion>
+    <fileVersion>3.0.9.0</fileVersion>
+    <txtFileVersion>3.0.9</txtFileVersion>
     <fileDescription>Secure Remote Desktop Client</fileDescription>
     <copyright>2026</copyright>
-    <productVersion>3.0.7.0</productVersion>
-    <txtProductVersion>3.0.7</txtProductVersion>
+    <productVersion>3.0.9.0</productVersion>
+    <txtProductVersion>3.0.9</txtProductVersion>
     <productName>SecureRemoteDesktop</productName>
     <companyName></companyName>
     <internalName>SecureRemoteDesktopClient</internalName>
