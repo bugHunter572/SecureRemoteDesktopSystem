@@ -18,18 +18,10 @@ class VpnAlertLogicTest {
     @Test
     void alertsOnTransitionIntoAlertStates() {
         assertEquals(ALERT, VpnAlertLogic.decide(PROTECTED, OFF, true, false));
+        assertEquals(ALERT, VpnAlertLogic.decide(PROTECTED, BLOCKED, true, false));
+        assertEquals(ALERT, VpnAlertLogic.decide(CHECKING, STALE, true, false));
         assertEquals(ALERT, VpnAlertLogic.decide(null, NOT_INSTALLED, true, false));
-        assertEquals(ALERT, VpnAlertLogic.decide(BLOCKED, OFF, true, false));
-    }
-
-    @Test
-    void blockedAndNotRespondingAreNotAlerts() {
-        assertEquals(NONE, VpnAlertLogic.decide(PROTECTED, BLOCKED, true, false));
-        assertEquals(NONE, VpnAlertLogic.decide(CHECKING, STALE, true, false));
-        assertEquals(NONE, VpnAlertLogic.decide(PROTECTED, STALE, true, false));
-        // the service started again, even though it blocks: the OFF alert is over
-        assertEquals(RESTORED, VpnAlertLogic.decide(OFF, BLOCKED, true, true));
-        assertEquals(RESTORED, VpnAlertLogic.decide(OFF, STALE, true, true));
+        assertEquals(ALERT, VpnAlertLogic.decide(OFF, BLOCKED, true, true)); // a different alert state
     }
 
     @Test
@@ -51,7 +43,7 @@ class VpnAlertLogicTest {
     @Test
     void everyAlertFlaggedStateAlerts() {
         for (VpnGuardStatus.State s : VpnGuardStatus.State.values()) {
-            if (VpnAlertLogic.serviceRunning(s)) continue;
+            if (s == PROTECTED) continue;
             VpnAlertLogic.Decision d = VpnAlertLogic.decide(PROTECTED, s, true, false);
             assertEquals(s.alert ? ALERT : NONE, d, s.name());
         }

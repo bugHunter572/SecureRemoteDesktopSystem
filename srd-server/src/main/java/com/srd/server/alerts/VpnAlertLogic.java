@@ -9,16 +9,11 @@ public final class VpnAlertLogic {
         NONE,
         /** Entered an alert state: highlight the row, toast, beep, log. */
         ALERT,
-        /** The service runs again after an alert: clear the highlight, short "restored" toast. */
+        /** Back to PROTECTED after an alert: clear the highlight, short "restored" toast. */
         RESTORED
     }
 
     private VpnAlertLogic() {
-    }
-
-    /** The VPN Guard service is running in these states (even if it blocks the internet or is slow to report). */
-    public static boolean serviceRunning(State s) {
-        return s == State.PROTECTED || s == State.BLOCKED || s == State.STALE || s == State.CHECKING;
     }
 
     /**
@@ -29,7 +24,7 @@ public final class VpnAlertLogic {
      */
     public static Decision decide(State previous, State next, boolean notificationsEnabled, boolean highlighted) {
         if (next == null) return Decision.NONE;
-        if (serviceRunning(next)) return highlighted ? Decision.RESTORED : Decision.NONE;
+        if (next == State.PROTECTED) return highlighted ? Decision.RESTORED : Decision.NONE;
         if (next.alert && next != previous && notificationsEnabled) return Decision.ALERT;
         return Decision.NONE;
     }

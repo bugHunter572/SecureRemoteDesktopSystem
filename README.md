@@ -50,7 +50,7 @@ Each `bin\` folder is that app's runtime folder: `ffmpeg.exe` for the server, co
 
 **Deploying to other PCs:** run `build\build-exe.ps1 -BundleJre -Package` and see [DEPLOYMENT.md](DEPLOYMENT.md). The zips include a Java runtime, so target PCs need no Java.
 
-**macOS:** no packaged build. For a dev run on macOS/Linux, run the client from the shaded jar with `build/run-client.sh`. On macOS, grant the Java binary *Screen Recording* and *Accessibility* permission.
+**macOS (M1–M4 and Intel):** `build\build-macos.ps1` produces ready `.app` packages with a bundled Java runtime (see DEPLOYMENT.md §3b). For a quick dev run on macOS/Linux, run the client from the shaded jar with `build/run-client.sh`. On macOS, grant the Java binary *Screen Recording* and *Accessibility* permission.
 
 ## Protocol v3 (summary)
 

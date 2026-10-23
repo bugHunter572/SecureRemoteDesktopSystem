@@ -29,19 +29,15 @@ public final class VpnGuardStatus {
         NOT_APPLICABLE("N/A", new Color(0x9E9E9E), false),
         NOT_INSTALLED("Not installed", new Color(0x757575), true),
         OFF("Off", new Color(0xD32F2F), true),
-        STALE("Not responding", new Color(0xF57C00), false),
+        STALE("Not responding", new Color(0xF57C00), true),
         CHECKING("Checking", new Color(0xFBC02D), false),
         PROTECTED("Protected", new Color(0x2E7D32), false),
-        BLOCKED("Blocked", new Color(0xC62828), false),
+        BLOCKED("Blocked", new Color(0xC62828), true),
         UNKNOWN("Unknown", new Color(0x9E9E9E), false);
 
         public final String label;
         public final Color color;
-        /**
-         * Transitions into this state raise an alert on the server. Only a stopped VPN Guard service (OFF)
-         * and, if wanted, a missing install do: Blocked, Checking and Not responding mean the service is
-         * running, and a blocking VPN Guard is doing its job.
-         */
+        /** Transitions into this state raise an alert on the server. */
         public final boolean alert;
 
         State(String label, Color color, boolean alert) {
@@ -59,7 +55,7 @@ public final class VpnGuardStatus {
         }
     }
 
-    /** With the service state unknown, status.json older than this means the service is most likely stopped. */
+    /** status.json older than this while the service runs ⇒ STALE (the service is hung). */
     public static final long STALE_AFTER_SEC = 45;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSS]");
 
@@ -128,23 +124,23 @@ public final class VpnGuardStatus {
             if (alive != null) age = Math.max(0, Duration.between(alive, now).getSeconds());
         }
 
-        // The client reports only whether the VPN Guard service is running: Protected = running (even while
-        // it blocks the internet or is slow to update status.json), Off = stopped.
         State st;
         if (!svc.isEmpty() && !"RUNNING".equals(svc)) {
             st = State.OFF;
             reason = "VPN Guard service is " + svc.toLowerCase();
-        } else if (!svc.isEmpty()) {
-            st = State.PROTECTED;
         } else if (j == null) {
-            st = State.UNKNOWN; // service state could not be queried and there is no status file
+            st = svc.isEmpty() ? State.UNKNOWN : State.STALE;
+            if (st == State.STALE) reason = "service running but status.json unreadable";
         } else if (age > STALE_AFTER_SEC) {
             // A stopped service leaves a frozen status.json behind; if we couldn't query the
             // service, a very old heartbeat most likely means it's off.
-            st = State.OFF;
+            st = svc.isEmpty() ? State.OFF : State.STALE;
             reason = "no heartbeat for " + age + " s";
+        } else if (Boolean.TRUE.equals(j.get("verifying"))) {
+            st = State.CHECKING;
         } else {
-            st = State.PROTECTED;
+            String s = str(j.get("state")).toUpperCase();
+            st = "ALLOWED".equals(s) ? State.PROTECTED : "BLOCKED".equals(s) ? State.BLOCKED : State.UNKNOWN;
         }
         return new VpnGuardStatus(st, ip, country, route, reason, since, age, appRunning, svc);
     }

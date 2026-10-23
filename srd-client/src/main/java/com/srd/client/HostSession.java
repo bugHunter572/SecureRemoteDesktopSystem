@@ -4,12 +4,14 @@ import com.srd.client.audio.AudioEngine;
 import com.srd.client.input.InputInjector;
 import com.srd.client.overlay.AnnotationHub;
 import com.srd.client.stream.ScreenStreamer;
+import com.srd.common.annotation.PenMessage;
 import com.srd.common.input.InputEvent;
 import com.srd.common.protocol.MessageType;
 import com.srd.common.protocol.MuxConnection;
 import com.srd.common.protocol.StreamRequest;
 import com.srd.common.protocol.WireReader;
 import com.srd.common.util.Log;
+import com.srd.common.util.Os;
 import java.awt.Rectangle;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -31,6 +33,7 @@ public final class HostSession {
     private volatile boolean audio;
     private volatile boolean closed;
     private boolean warnedControl;
+    private boolean warnedPen;
 
     public HostSession(MuxConnection conn, ScreenStreamer streamer, InputInjector injector, AnnotationHub hub,
                        BooleanSupplier controlAllowed, BooleanSupplier drawAllowed) {
@@ -99,10 +102,30 @@ public final class HostSession {
                 return true;
             }
             case MessageType.PEN:
-                if (drawAllowed.getAsBoolean()) hub.onPen(conn, p);
+                if (Os.MAC) rejectPen(p);
+                else if (drawAllowed.getAsBoolean()) hub.onPen(conn, p);
                 return true;
             default:
                 return false;
+        }
+    }
+
+    /**
+     * A Mac broadcaster does not take drawings: macOS can't keep the overlay out of the captured
+     * picture or reliably let clicks pass through it. Nothing is drawn here, and the viewer is
+     * told to remove the stroke it already drew locally, so it vanishes on its side too (this
+     * works with every viewer version, including the server's).
+     */
+    private void rejectPen(byte[] p) {
+        if (!warnedPen) {
+            warnedPen = true;
+            Log.info("Drawing from " + conn + " ignored: drawing is not available when a Mac is broadcasting");
+        }
+        try {
+            PenMessage m = PenMessage.decode(p);
+            if (m.op == PenMessage.BEGIN || m.op == PenMessage.END) conn.send(MessageType.PEN, PenMessage.remove(m.author, m.seq));
+        } catch (RuntimeException e) {
+            Log.debug("bad pen message: " + e);
         }
     }
 

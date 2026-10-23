@@ -25,9 +25,10 @@ import java.util.function.Consumer;
  * state to the server. Windows, macOS and Linux use the same logic.
  *
  * <p>Primary source: VPN Guard's own CLI, {@code vpnguard status} ("service state, current
- * verdict, recent log (no admin)"). It prints {@code service: Running|Stopped|…} followed by the
- * status JSON, so the answer comes from VPN Guard itself instead of being inferred. It takes
- * about 130 ms.
+ * verdict, recent log (no admin)"). It prints {@code service: Running|Stopped|…} (Windows) or
+ * {@code daemon: Running|Stopped|NotInstalled} (macOS) followed by the status JSON, so the answer
+ * comes from VPN Guard itself instead of being inferred. It takes about 130 ms on Windows and
+ * 10 ms on macOS.
  *
  * <p>Fallback, if the CLI isn't found or fails: the service state (Windows service query; on
  * macOS/Linux, whether a {@code vpnguard} daemon process runs) plus the {@code status.json} the
@@ -37,7 +38,8 @@ import java.util.function.Consumer;
  * <p>None of this needs admin rights.
  */
 public final class VpnGuardMonitor {
-    public static final int POLL_SECONDS = 5;
+    /** macOS polls faster: its CLI answers in ~10 ms, and a stop should show within seconds. */
+    public static final int POLL_SECONDS = Os.MAC ? 2 : 5;
     private static final String SERVICE = "VPNGuard";
     private static final long CLI_TIMEOUT_MS = 5000;
 
@@ -89,6 +91,27 @@ public final class VpnGuardMonitor {
 
     /** One observation of VPN Guard on this machine. {@code sourceOut[0]} says how it was obtained. */
     public static VpnGuardStatus probe(String[] sourceOut) {
+        return onOff(probeDetailed(sourceOut));
+    }
+
+    /**
+     * Only ON/OFF is reported. While the service runs VPN Guard is on, even when it is blocking the
+     * internet (its job), re-verifying the route, or late with its heartbeat because its probes
+     * can't get out; none of that is "off" and must not trigger the VPN-off alert.
+     */
+    static VpnGuardStatus onOff(VpnGuardStatus s) {
+        switch (s.state) {
+            case BLOCKED:
+            case CHECKING:
+            case STALE:
+                return new VpnGuardStatus(VpnGuardStatus.State.PROTECTED, s.ip, s.country, s.route, "", s.since,
+                        s.aliveAgeSec, s.appRunning, s.service);
+            default:
+                return s;
+        }
+    }
+
+    private static VpnGuardStatus probeDetailed(String[] sourceOut) {
         boolean app = trayAppRunning();
         // 1) VPN Guard's own CLI.
         File cli = findCli();
@@ -101,8 +124,13 @@ public final class VpnGuardMonitor {
         }
         // 2) Service state + status.json.
         String service = serviceState(); // RUNNING / STOPPED / … / MISSING / "" (unknown)
-        boolean serviceExists = !service.isEmpty() && !"MISSING".equals(service);
         File statusFile = findStatusFile();
+        if (!Os.WINDOWS && service.isEmpty() && (cli != null || statusFile != null || app)) {
+            // Installed but no vpnguard daemon process: it is stopped. Saying so now beats
+            // waiting for status.json to look stale (45 s).
+            service = "STOPPED";
+        }
+        boolean serviceExists = !service.isEmpty() && !"MISSING".equals(service);
         boolean installed = cli != null || serviceExists || statusFile != null || app;
         if (!installed) {
             sourceOut[0] = "not found (no vpnguard CLI, service, process or status.json)";
@@ -206,7 +234,7 @@ public final class VpnGuardMonitor {
     /**
      * Parses {@code vpnguard status} output:
      * <pre>
-     * service: Running
+     * service: Running            (macOS: "daemon: Running|Stopped|NotInstalled")
      * VPN clients that may reconnect while blocked:
      *   C:\Program Files\ExpressVPN
      * {
@@ -224,8 +252,8 @@ public final class VpnGuardMonitor {
         for (int i = 0; i < lines.length; i++) {
             String l = lines[i].trim();
             String lower = l.toLowerCase(Locale.ROOT);
-            if (service.isEmpty() && lower.startsWith("service:")) {
-                service = normalizeService(l.substring("service:".length()).trim());
+            if (service.isEmpty() && (lower.startsWith("service:") || lower.startsWith("daemon:"))) {
+                service = normalizeService(l.substring(l.indexOf(':') + 1).trim());
             }
             if (jsonStart < 0 && l.equals("{")) jsonStart = i;
             if (jsonStart >= 0 && lines[i].startsWith("}")) {
@@ -239,11 +267,12 @@ public final class VpnGuardMonitor {
         return new CliStatus(service, json);
     }
 
-    /** "Running" → RUNNING, "Stopped" → STOPPED, "not installed" → MISSING, other text upper-cased. */
+    /** "Running" → RUNNING, "Stopped" → STOPPED, "not installed"/"NotInstalled" → MISSING, other text upper-cased. */
     static String normalizeService(String s) {
         String l = s.toLowerCase(Locale.ROOT);
         if (l.startsWith("running")) return "RUNNING";
-        if (l.contains("not installed") || l.contains("not found") || l.contains("missing")) return "MISSING";
+        String compact = l.replace(" ", "").replace("_", "");
+        if (compact.contains("notinstalled") || compact.contains("notfound") || l.contains("missing")) return "MISSING";
         if (l.startsWith("stopped") || l.equals("stop") || l.contains("not running") || l.contains("inactive")) return "STOPPED";
         if (l.contains("start")) return "START_PENDING";
         if (l.contains("stopping")) return "STOP_PENDING";
@@ -332,12 +361,15 @@ public final class VpnGuardMonitor {
         }
     }
 
-    /** Tray / window app: vpnguard-app(.exe), or a process inside VPNGuard.app (macOS). */
+    /** Tray / window app: vpnguard-app(.exe), or the app inside "VPN Guard.app" / VPNGuard.app (macOS). */
     private static boolean trayAppRunning() {
-        return ProcessHandle.allProcesses().anyMatch(ph -> ph.info().command().map(c -> {
-            String l = c.toLowerCase(Locale.ROOT).replace('\\', '/');
-            return l.endsWith("/vpnguard-app.exe") || l.endsWith("/vpnguard-app") || l.contains("/vpnguard.app/contents/macos/")
-                    && !l.endsWith("/vpnguard");
-        }).orElse(false));
+        return ProcessHandle.allProcesses().anyMatch(ph -> ph.info().command().map(VpnGuardMonitor::isTrayApp).orElse(false));
+    }
+
+    static boolean isTrayApp(String command) {
+        String l = command.toLowerCase(Locale.ROOT).replace('\\', '/');
+        if (l.endsWith("/vpnguard-app.exe") || l.endsWith("/vpnguard-app")) return true;
+        // The macOS bundle is "VPN Guard.app"; its CLI/daemon binary (…/MacOS/vpnguard) is not the app.
+        return l.replace(" ", "").contains("/vpnguard.app/contents/macos/") && !l.endsWith("/vpnguard");
     }
 }

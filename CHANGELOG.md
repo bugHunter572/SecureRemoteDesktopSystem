@@ -5,20 +5,10 @@ All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 ## [3.0.6] - 2026-10-17
 
 ### Fixed
-- **VPN Guard alerts only when the VPN Guard service is stopped.** "Blocked" (internet blocked by VPN Guard),
-  "Checking" and "Not responding" (status file older than 45 s) no longer raise an alert, a red row, a
-  pop-up or a Mattermost message: in those states the service is running. If a stopped VPN Guard starts
-  again, even while blocking, the alert ends ("VPN Guard On"). The shield icons still show the exact state.
-- **The client now reports only whether the VPN Guard service is running** (Protected) or stopped (Off), so a
-  client no longer reports Blocked, Checking or Not responding while the service runs. This needs the 3.0.6
-  client; the server also ignores those states from older clients.
-
-### Changed
-- Mattermost: VPN Guard problems now read "🔴 VPN Guard Off" and recoveries "🟢 VPN Guard On" (red / green).
-- Server Configuration: Alternative IPs is now a list with an Add field (Enter adds, several IPs can be pasted at once), Remove button, validation and no duplicates, not one comma-separated text.
-- Mattermost: posts can now go through a bot account (Notification Settings: Server URL, Bot token, Channel by name or id), so they show the bot name and avatar. Without a token the webhook is still used.
-- VPN Guard icon of a disconnected client is gray (was a pale green/red), in the table and on the thumbnail.
-- Mattermost: the bot "guard" (token built in) posting to the ScreenApp channel is the default; the webhook is used only if the token is cleared in Notification Settings.
+- **VPN Guard: only On/Off is reported.** A client whose VPN Guard service was running but blocking
+  the internet was reported as "Blocked" (or "Not responding" when its heartbeat lagged because its
+  probes couldn't get out) and raised the same alert as VPN Guard being off. The client now reports
+  On whenever the service runs, whatever it is currently allowing; only a stopped service is Off.
 
 ## [3.0.5] - 2026-10-15
 
@@ -37,9 +27,38 @@ All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
   black are retried with GDI and Robot and otherwise dropped, and the server ignores a black thumbnail
   from a connected client, so the previous screenshot stays (or "Waiting for screen..." if there is none).
 
+### macOS client
+- **Computer audio without installing anything.** Sound from a Mac is now the Mac's own output
+  (what it plays), captured by a small helper bundled in the app (`Contents/MacOS/srd-system-audio`,
+  ScreenCaptureKit, macOS 13+, uses the Screen Recording permission). BlackHole is no longer needed
+  and the microphone is never opened on a Mac.
+- **No drawing on a Mac broadcaster.** macOS could not keep the drawing overlay out of the shared
+  picture and the overlay got in the way of the Mac's user. A Mac now ignores drawings and tells the
+  viewer to remove each stroke at once (works with every viewer, including the server's); the client's
+  peer viewer hides the pen button when the PC it views is a Mac. A Mac viewing a Windows PC can still draw.
+- New app icon drawn sharp at every size (white glyph, standard macOS margins); the old one was the
+  256 px Windows icon scaled up.
+- **Screen Recording kept being asked for although it was on.** The app was unsigned and started
+  through a shell script that ran a separately signed `java`, so the permission switched on in System
+  Settings did not match the process macOS checked. The app now has a native launcher that runs Java
+  inside the app process, and the bundle is signed (ad hoc, identity `com.srd.client`, so permissions
+  survive updates). Install clears the stale entries of older builds once and stops a running copy
+  first (before, the old version kept running). "Re-check" now sees a fresh grant without a restart.
+- **VPN Guard detection on a Mac was slow and could be wrong.** The Mac CLI prints `daemon:` (not
+  `service:` as on Windows), so a stopped VPN Guard still showed "Protected" until its frozen
+  status.json was 45 s old (about 50 s in all). The daemon line is now read, so Off shows within
+  2 s (the Mac polls every 2 s; its CLI answers in ~10 ms). "NotInstalled" counts as off, and the
+  VPN Guard app is recognised in "VPN Guard.app" (the name has a space).
+- **The Mac app now keeps running like the Windows one.** Its start-at-login job (LaunchAgent) was
+  only written, so it took effect at the next login, and "Quit" removed it; a closed app stayed
+  closed. The job is now loaded at once and brings the app back whenever it stops (menu, Force Quit,
+  crash); the menu item is "Exit" and restarts the app, as on Windows. Uninstall removes it for good.
+- **Image Quality applies at once**: when the server changes it, the Mac sends a fresh snapshot right
+  away instead of at the next interval (up to 60 s later).
+- On a Mac, `build/package_macos.py` makes the .dmg with `hdiutil` (compressed). The audio helper is
+  built universal (Apple Silicon + Intel) by `build/build_macos_native.sh`.
+
 ### Changed
-- Server: a lost client is always shown as Disconnected. The ping that guessed "Power Off" is gone (it was unreliable); old Power Off records show a simple grey X icon.
-- Changing Image Quality or Thumbnail Size now asks every client for a fresh picture right away (before, the change showed only after the next interval).
 - Client tray menu: "Hide Tray Icon" makes the icon fully transparent (the menu still opens by right-clicking its spot); untick it to show the icon again. Remembered across restarts.
 - Client: broadcasting (peer listening) is off by default; Start/Stop Broadcasting in the tray menu turns it on or off and remembers the choice.
 - Power-off status/record icon is now a dark monitor with a power symbol (was the orange power circle).

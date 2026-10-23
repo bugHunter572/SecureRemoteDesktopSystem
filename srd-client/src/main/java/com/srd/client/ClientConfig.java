@@ -20,7 +20,7 @@ public final class ClientConfig {
     public static final String FILE = "client-config.properties";
     public static final int DEFAULT_SERVER_PORT = 2582;
     public static final int DEFAULT_PEER_PORT = 2583;
-    public static final int DEFAULT_API_PORT = 2584;
+    public static final int DEFAULT_CONTROL_PORT = 2584;
     public static final String DEFAULT_PSK = "MySecretKey12345";
 
     private final File file;
@@ -92,6 +92,11 @@ public final class ClientConfig {
 
     public int peerPort() {
         return getInt("peer.port", DEFAULT_PEER_PORT);
+    }
+
+    /** Port of the HTTP endpoint that enables broadcasting on request; 0 turns it off. */
+    public int controlPort() {
+        return getInt("control.port", DEFAULT_CONTROL_PORT);
     }
 
     public String psk() {

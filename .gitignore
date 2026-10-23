@@ -32,10 +32,5 @@ dist/
 build/jre/
 */bin/jre/
 
-# Build download cache
+# macOS packaging download cache (build-macos.ps1)
 build/.cache/
-
-# Local tooling / logs
-.claude/
-*.log
-*.tmp

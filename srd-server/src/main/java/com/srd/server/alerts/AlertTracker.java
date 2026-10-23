@@ -16,7 +16,7 @@ public final class AlertTracker {
     public enum Kind {
         DISCONNECTED("🔴", "ScreenApp Disconnected", 0),
         NO_SCREEN("🟠", "Screen Waiting", 1),
-        VPN("🔴", "VPN Guard Off", 2);
+        VPN("🛡️", "VPN Guard", 2);
 
         public final String emoji;
         /** The Status column of the Mattermost table. */
@@ -37,8 +37,7 @@ public final class AlertTracker {
         public final long since;
         boolean toasted;
         boolean mmSent;
-        /** When this problem last went to Mattermost (first post or a reminder). */
-        long lastPostMs;
+        boolean reminded;
 
         Problem(String clientId, Kind kind, String detail, long since) {
             this.clientId = clientId;
@@ -123,13 +122,6 @@ public final class AlertTracker {
         return problems.containsKey(key(clientId, kind));
     }
 
-    /** Clients that currently have an open problem of this kind. */
-    public synchronized List<String> openIds(Kind kind) {
-        List<String> out = new ArrayList<>();
-        for (Problem p : problems.values()) if (p.kind == kind) out.add(p.clientId);
-        return out;
-    }
-
     /** Ends a problem; queues a recovery notice if it had been announced anywhere. */
     public synchronized void resolve(String clientId, Kind kind, String detail, long now) {
         Problem p = problems.remove(key(clientId, kind));
@@ -159,10 +151,7 @@ public final class AlertTracker {
         return tick(now, popupDelayMs, mmDelayMs, mmGroupMs, -1, gate);
     }
 
-    /**
-     * @param reminderDelayMs a "still disconnected" reminder every this long after the last post, for
-     *                        {@link Kind#DISCONNECTED} problems only (zero or negative = never)
-     */
+    /** @param reminderDelayMs one "still there" reminder this long after the problem began, once it was posted (negative = never) */
     public synchronized Due tick(long now, long popupDelayMs, long mmDelayMs, long mmGroupMs, long reminderDelayMs, Gate gate) {
         Due due = new Due();
         boolean mmTriggered = false;
@@ -179,15 +168,14 @@ public final class AlertTracker {
             for (Problem p : problems.values()) {
                 if (!p.mmSent && gate.allowed(p) && now - p.since >= mmDelayMs - mmGroupMs) {
                     p.mmSent = true;
-                    p.lastPostMs = now;
                     due.mattermost.add(p);
                 }
             }
         }
-        if (reminderDelayMs > 0) {
+        if (reminderDelayMs >= 0) {
             for (Problem p : problems.values()) {
-                if ((p.kind == Kind.DISCONNECTED || p.kind == Kind.NO_SCREEN) && p.mmSent && now - p.lastPostMs >= reminderDelayMs && gate.allowed(p)) {
-                    p.lastPostMs = now;
+                if (p.mmSent && !p.reminded && now - p.since >= reminderDelayMs && gate.allowed(p)) {
+                    p.reminded = true;
                     due.reminders.add(p);
                 }
             }

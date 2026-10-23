@@ -3,7 +3,6 @@ package com.srd.server.ui;
 import com.srd.server.alerts.AlertService;
 import com.srd.server.alerts.Mattermost;
 import com.srd.server.config.NotifySettings;
-import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -17,7 +16,8 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JPasswordField;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
@@ -29,7 +29,7 @@ public final class NotificationSettingsDialog {
     }
 
     /** Shows the dialog; returns the edited copy, or null if cancelled / invalid. */
-    public static NotifySettings show(Component parent, NotifySettings current, String serverName, int screenIntervalSec) {
+    public static NotifySettings show(Component parent, NotifySettings current, String serverName) {
         NotifySettings n = current.copy();
 
         JCheckBox disconnected = new JCheckBox("ScreenApp disconnected (client was connected, then lost)", n.alertDisconnected);
@@ -42,26 +42,15 @@ public final class NotificationSettingsDialog {
 
         JCheckBox mm = new JCheckBox("Send to Mattermost", n.mattermost);
         JTextField url = new JTextField(n.webhookUrl, 34);
-        url.setToolTipText("Only used while the bot token is empty");
-        JTextField botServer = new JTextField(n.botServer, 24);
-        JPasswordField botToken = new JPasswordField(n.botToken, 34);
-        botToken.setToolTipText("Access token of the Mattermost bot account (Integrations > Bot Accounts)");
-        JTextField botChannel = new JTextField(n.botChannel, 34);
-        botChannel.setToolTipText("Channel name or id. The bot must be a member of the channel.");
         JSpinner mmDelay = spinner(n.mattermostDelaySec, 0, 86400);
-        boolean repeatFollowsScreen = n.mattermostRepeatSec < 0;
-        int repeatShown = repeatFollowsScreen ? screenIntervalSec : n.mattermostRepeatSec;
-        JSpinner mmRepeat = spinner(repeatShown, 0, 86400);
-        mmRepeat.setToolTipText("While a PC stays ScreenApp Disconnected, post it again this often. Default: the screen interval (Server Configuration). 0 = post only once.");
-        TagRangeEditor tags = new TagRangeEditor(n.tags);
-        tags.setToolTipText("The tag is put in the row of every client whose IP is inside the range.");
+        JTextArea tags = new JTextArea(n.tags, 12, 34);
+        tags.setToolTipText("One line per tag: @tag first-ip ~ last (last octet or full IP). The tag is put in that client's row.");
         JButton test = new JButton("Send test message");
         JLabel testResult = new JLabel(" ");
         test.addActionListener(e -> {
-            Mattermost.Target target = new Mattermost.Target(url.getText().trim(), botServer.getText(),
-                    new String(botToken.getPassword()), botChannel.getText());
-            if (target.isBot() ? !NotifySettings.isValidWebhook(target.serverUrl()) : !NotifySettings.isValidWebhook(target.webhookUrl())) {
-                testResult.setText("Enter the bot server, token and channel (or a valid webhook URL) first.");
+            String u = url.getText().trim();
+            if (!NotifySettings.isValidWebhook(u)) {
+                testResult.setText("Enter a valid http(s) webhook URL first.");
                 return;
             }
             test.setEnabled(false);
@@ -69,7 +58,7 @@ public final class NotificationSettingsDialog {
             Thread t = new Thread(() -> {
                 String result;
                 try {
-                    Mattermost.postBlocking(target, Mattermost.table(java.util.Collections.singletonList(new Mattermost.Row(
+                    Mattermost.postBlocking(u, Mattermost.table(java.util.Collections.singletonList(new Mattermost.Row(
                             "", "Test", "-", "✅ Test message", AlertService.when(System.currentTimeMillis())))));
                     result = "Sent. Check the channel.";
                 } catch (Exception ex) {
@@ -103,30 +92,24 @@ public final class NotificationSettingsDialog {
         row(p, c, "Show pop-up after (s):", popupDelay);
         section(p, c, "Mattermost");
         row(p, c, mm);
-        JPanel serverRow = new JPanel(new BorderLayout(8, 0));
-        serverRow.add(botServer, BorderLayout.CENTER);
-        serverRow.add(test, BorderLayout.EAST);
-        row(p, c, "Server URL:", serverRow);
-        row(p, c, "", testResult);
-        row(p, c, "Bot token:", botToken);
-        row(p, c, "Channel:", botChannel);
-        row(p, c, "Webhook URL (no bot token):", url);
+        row(p, c, "Webhook URL:", url);
         row(p, c, "Send after (s):", mmDelay);
-        row(p, c, "Repeat disconnected every (s):", mmRepeat);
-        row(p, c, new JLabel("Tags by IP range (e.g. @acs, 192.168.110.100 to 192.168.110.104):"));
-        row(p, c, tags);
+        row(p, c, new JLabel("Tags by IP range (one per line, e.g. @acs 192.168.110.100 ~ 104):"));
+        row(p, c, new JScrollPane(tags));
+        JPanel testRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        testRow.add(test);
+        testRow.add(Box.createHorizontalStrut(8));
+        testRow.add(testResult);
+        row(p, c, testRow);
 
         int result = JOptionPane.showConfirmDialog(parent, p, "Notification Settings", JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) return null;
 
         String webhook = url.getText().trim();
-        String token = new String(botToken.getPassword()).trim();
-        boolean bot = !token.isEmpty() && !botChannel.getText().trim().isEmpty();
-        if (mm.isSelected() && !(bot ? NotifySettings.isValidWebhook(botServer.getText()) : NotifySettings.isValidWebhook(webhook))) {
-            JOptionPane.showMessageDialog(parent, bot ? "The Mattermost server URL must start with http:// or https://"
-                            : "Enter the bot token and channel, or a webhook URL that starts with http:// or https://",
-                    "Invalid Mattermost settings", JOptionPane.ERROR_MESSAGE);
+        if (mm.isSelected() && !NotifySettings.isValidWebhook(webhook)) {
+            JOptionPane.showMessageDialog(parent, "The Mattermost webhook URL must start with http:// or https://",
+                    "Invalid URL", JOptionPane.ERROR_MESSAGE);
             return null;
         }
         n.alertDisconnected = disconnected.isSelected();
@@ -137,13 +120,8 @@ public final class NotificationSettingsDialog {
         n.popupDelaySec = (Integer) popupDelay.getValue();
         n.mattermost = mm.isSelected();
         if (NotifySettings.isValidWebhook(webhook)) n.webhookUrl = webhook;
-        n.botServer = botServer.getText().trim();
-        n.botToken = token;
-        n.botChannel = botChannel.getText().trim();
         n.mattermostDelaySec = (Integer) mmDelay.getValue();
-        int repeat = (Integer) mmRepeat.getValue();
-        n.mattermostRepeatSec = repeatFollowsScreen && repeat == repeatShown ? -1 : repeat;
-        n.tags = tags.getText();
+        n.tags = tags.getText().trim();
         return n;
     }
 

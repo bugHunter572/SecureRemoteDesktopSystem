@@ -46,15 +46,11 @@ class VpnGuardStatusTest {
     }
 
     @Test
-    void runningServiceIsAlwaysProtected() {
-        // only "service stopped" is reported as a problem: blocking or re-checking is still "running"
-        assertEquals(VpnGuardStatus.State.PROTECTED,
+    void blockedAndChecking() {
+        assertEquals(VpnGuardStatus.State.BLOCKED,
                 VpnGuardStatus.derive(true, "RUNNING", json("BLOCKED", false, "2026-10-14 13:00:05"), true, NOW).state);
-        assertEquals(VpnGuardStatus.State.PROTECTED,
+        assertEquals(VpnGuardStatus.State.CHECKING,
                 VpnGuardStatus.derive(true, "RUNNING", json("BLOCKED", true, "2026-10-14 13:00:05"), true, NOW).state);
-        assertFalse(VpnGuardStatus.State.BLOCKED.alert);
-        assertFalse(VpnGuardStatus.State.STALE.alert);
-        assertFalse(VpnGuardStatus.State.CHECKING.alert);
     }
 
     @Test
@@ -67,7 +63,7 @@ class VpnGuardStatusTest {
     @Test
     void staleHeartbeat() {
         String old = json("ALLOWED", false, "2026-10-14 12:50:00.000");
-        assertEquals(VpnGuardStatus.State.PROTECTED, VpnGuardStatus.derive(true, "RUNNING", old, true, NOW).state);
+        assertEquals(VpnGuardStatus.State.STALE, VpnGuardStatus.derive(true, "RUNNING", old, true, NOW).state);
         // service state unknown + frozen file → most likely stopped
         assertEquals(VpnGuardStatus.State.OFF, VpnGuardStatus.derive(true, "", old, false, NOW).state);
     }
@@ -75,7 +71,7 @@ class VpnGuardStatusTest {
     @Test
     void notInstalledAndHalfWrittenFile() {
         assertEquals(VpnGuardStatus.State.NOT_INSTALLED, VpnGuardStatus.derive(false, "", null, false, NOW).state);
-        assertEquals(VpnGuardStatus.State.PROTECTED, VpnGuardStatus.derive(true, "RUNNING", "{\"alive\": \"2026-", true, NOW).state);
+        assertEquals(VpnGuardStatus.State.STALE, VpnGuardStatus.derive(true, "RUNNING", "{\"alive\": \"2026-", true, NOW).state);
     }
 
     @Test

@@ -47,7 +47,7 @@ foreach ($a in $apps) {
 }
 
 # ---- 1. Maven
-$modules = @($apps | ForEach-Object { $_.Module }) + 'srd-common'
+$modules = ($apps | ForEach-Object { $_.Module }) + 'srd-common'
 $mvnArgs = @('-f', (Join-Path $root 'pom.xml'), 'clean', 'package', '-pl', ($modules -join ','), '-am')
 if (-not $Online) { $mvnArgs = @('-o') + $mvnArgs }
 if ($SkipTests) { $mvnArgs += '-DskipTests' }
@@ -68,9 +68,8 @@ if ($BundleJre) {
     $jlink = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\jlink.exe' } else { (Get-Command jlink.exe -ErrorAction Stop).Source }
     $jre = Join-Path $root 'build\jre'
     if (Test-Path $jre) { Remove-Item -Recurse -Force $jre }
-    # Modules from `jdeps --print-module-deps` on both shaded jars, plus jdk.unsupported for JNA
-    # and jdk.httpserver for the client's broadcast API.
-    $mods = 'java.base,java.desktop,java.logging,java.sql,jdk.unsupported,jdk.httpserver'
+    # Modules from `jdeps --print-module-deps` on both shaded jars, plus jdk.unsupported for JNA.
+    $mods = 'java.base,java.desktop,java.logging,java.sql,jdk.unsupported'
     Write-Host "==> jlink $mods" -ForegroundColor Cyan
     & $jlink --add-modules $mods --strip-debug --no-man-pages --no-header-files --compress=zip-6 --output $jre
     if ($LASTEXITCODE -ne 0) { throw "jlink failed ($LASTEXITCODE)" }

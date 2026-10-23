@@ -92,7 +92,7 @@ public final class ServerApp {
      * clients does not pay those one-time start-up costs inside the GUI.
      */
     public static void preload() {
-        for (String icon : new String[] {"server-icon.png", "connected.png", "disconnected.png", "poweroff.png", "x-off.png",
+        for (String icon : new String[] {"server-icon.png", "connected.png", "disconnected.png", "poweroff.png", "computer-off.png",
                 "folder.png", "bell.png", "alarm-bell.png", "delete.png", "rec-start.png", "rec-stop.png",
                 "rec-in-progress.png", "full-screen.png", "minimize.png", "remote-on.png", "remote-off.png", "no-screen.png", "vpn-off.png",
                 "sound-on.png", "sound-off.png"}) {

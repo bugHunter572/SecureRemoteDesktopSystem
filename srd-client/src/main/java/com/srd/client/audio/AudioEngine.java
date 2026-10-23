@@ -174,7 +174,8 @@ public final class AudioEngine {
             AudioSource sys = createSystemSource();
             if (sys != null) list.add(sys);
         }
-        if (AudioConfig.isMicEnabled()) {
+        // macOS shares the computer's audio only; the microphone is never opened there.
+        if (AudioConfig.isMicEnabled() && !Os.MAC) {
             list.add(new JavaSoundMicSource());
         }
         return list;
@@ -184,17 +185,24 @@ public final class AudioEngine {
         try {
             if (Os.WINDOWS && WasapiLoopbackSource.isSupported()) return new WasapiLoopbackSource();
             if (Os.LINUX && PulseMonitorSource.isAvailable()) return new PulseMonitorSource();
+            if (Os.MAC) {
+                // The bundled ScreenCaptureKit helper; nothing to install. No loopback-device
+                // fallback here: on macOS those are input devices and would need the microphone.
+                AudioSource mac = MacSystemAudioSource.createIfAvailable();
+                if (mac == null) {
+                    Log.warn("audio: the bundled " + MacSystemAudioSource.HELPER + " helper was not found "
+                            + "(run the app from SecureRemoteDesktopClient.app); no computer audio.");
+                }
+                return mac;
+            }
         } catch (Throwable t) {
             Log.warn("audio: system-audio source unavailable: " + t);
+            if (Os.MAC) return null;
         }
-        // macOS (or a fallback elsewhere): a virtual loopback capture device such as BlackHole.
+        // Fallback: a virtual loopback capture device (Stereo Mix, VB-Cable...), if one exists.
         AudioSource loop = LoopbackDeviceDetector.createSystemSource();
         if (loop != null) return loop;
-        if (Os.MAC) {
-            Log.warn("audio: no system-audio source on macOS. Install BlackHole "
-                    + "(https://existential.audio/blackhole/) and route output through it to "
-                    + "stream system audio. Streaming microphone only.");
-        } else if (Os.LINUX) {
+        if (Os.LINUX) {
             Log.warn("audio: no system-audio source on Linux (need parec/pw-record from "
                     + "PulseAudio/PipeWire on PATH). Streaming microphone only.");
         } else {

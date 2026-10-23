@@ -2,6 +2,7 @@ package com.srd.client;
 
 import com.srd.client.audio.AudioConfig;
 import com.srd.client.audio.AudioEngine;
+import com.srd.client.net.ControlEndpoint;
 import com.srd.client.net.PeerHost;
 import com.srd.client.net.ServerLink;
 import com.srd.client.net.ServerLinks;
@@ -55,6 +56,7 @@ public final class ClientApp {
 
     private static ClientContext ctx;
     private static PeerHost peerHost;
+    private static ControlEndpoint controlEndpoint;
     private static TrayIcon trayIcon;
     private static Image greenIcon;
     private static Image redIcon;
@@ -67,7 +69,6 @@ public final class ClientApp {
         return online ? greenIcon : redIcon;
     }
     private static Menu serverStatusMenu;
-    private static com.srd.client.net.BroadcastApi broadcastApi;
     private static MenuItem startBroadcastItem;
     private static MenuItem stopBroadcastItem;
 
@@ -107,7 +108,6 @@ public final class ClientApp {
     private static void startUp() throws Exception {
         warnIfTranslocatedMac();
         if (Os.WINDOWS) installWatchdog(new File(".").getAbsoluteFile().getParentFile());
-        else if (Os.MAC) installMacLaunchAgent();
 
         ClientConfig config = ClientConfig.loadDefault();
         AudioConfig.load(config.raw());
@@ -122,6 +122,9 @@ public final class ClientApp {
         // open, so the user always has a menu (on macOS a menu-bar app's dialog can otherwise
         // open hidden behind other windows, leaving no icon and no way to quit).
         SwingUtilities.invokeAndWait(ClientApp::installTray);
+        // After the menu-bar UI exists (the app is then registered as running), so the
+        // LaunchAgent's "open -W" attaches to this instance instead of starting another.
+        if (Os.MAC) Threads.start("mac-launch-agent", ClientApp::installMacLaunchAgent);
 
         if (Os.MAC) Threads.start("mac-permissions", ClientApp::checkMacPermissions);
 
@@ -138,14 +141,10 @@ public final class ClientApp {
         }
 
         if (config.autoBroadcast()) startBroadcasting();
-        try {
-            broadcastApi = new com.srd.client.net.BroadcastApi(config, ClientApp::startBroadcasting);
-        } catch (IOException e) {
-            Log.warn("Cannot start broadcast API: " + e.getMessage());
-        }
+        startControlEndpoint();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (broadcastApi != null) broadcastApi.stop();
             ServerLinks.stopAll();
+            if (controlEndpoint != null) controlEndpoint.stop();
             if (peerHost != null) peerHost.stop();
         }, "shutdown"));
 
@@ -327,6 +326,23 @@ public final class ClientApp {
         refreshTray();
     }
 
+    /** HTTP {@code /broadcast} on the control port: an authorised request turns broadcasting on, like the tray item. */
+    private static void startControlEndpoint() {
+        int port = ctx.config.controlPort();
+        if (port <= 0) return;
+        controlEndpoint = new ControlEndpoint(port, ctx.config.psk(), () -> {
+            ctx.config.set("autoBroadcast", "true"); // remembered for the next start, as from the tray
+            startBroadcasting();
+            return peerHost.isRunning();
+        });
+        try {
+            controlEndpoint.start();
+        } catch (IOException e) {
+            Log.warn("Cannot start control endpoint on port " + port + ": " + e.getMessage());
+            controlEndpoint = null;
+        }
+    }
+
     // ------------------------------------------------------------------ tray
 
     private static void installTray() {
@@ -391,15 +407,16 @@ public final class ClientApp {
                         + "\nServer: " + (ctx.config.serverIp().isEmpty() ? "(not set)" : ctx.config.serverIp() + ":" + ctx.config.serverPort())
                         + "\nInput: " + ctx.injector.name() + "\nAudio: " + AudioEngine.get().describeSources()
                         + "\nVPN Guard: " + ctx.vpn.current().summary()
-                        + "\nDrawing stealth: " + (com.srd.client.overlay.OverlayNative.isCaptureExclusionSupported()
-                                ? "available (hidden from screen sharing)" : "not available on this OS/version")
+                        + (Os.MAC ? "\nDrawing: off (viewers can't draw on a Mac)"
+                                : "\nDrawing stealth: " + (com.srd.client.overlay.OverlayNative.isCaptureExclusionSupported()
+                                ? "available (hidden from screen sharing)" : "not available on this OS/version"))
                         + "\n\n© 2026 All rights reserved.", "About", JOptionPane.INFORMATION_MESSAGE)));
 
-        // Windows: "Exit" restarts the agent (it is meant to keep running; v2 behaviour).
-        // macOS: "Quit" really quits until the next login (stops the LaunchAgent for this session).
-        MenuItem exit = new MenuItem(Os.MAC ? "Quit Secure Remote Desktop" : "Exit");
+        // "Exit" restarts the agent: it is meant to keep running (v2 behaviour). On macOS the
+        // LaunchAgent also brings it back if it is closed any other way (Force Quit, crash).
+        MenuItem exit = new MenuItem("Exit");
         exit.addActionListener(e -> {
-            if (Os.MAC) quitMac();
+            if (Os.MAC) relaunchMac();
             else restartSelf();
         });
 
@@ -476,25 +493,6 @@ public final class ClientApp {
         g.drawImage(src, 0, 0, w, h, null);
         g.dispose();
         return out;
-    }
-
-    /** macOS Quit: stop the start-at-login job for this session (else KeepAlive relaunches us), then exit. */
-    private static void quitMac() {
-        Log.info("Quit requested from the menu bar");
-        try {
-            // bootout stops the running job; remove drops it from this session so KeepAlive can't
-            // relaunch it. Both are best-effort (the job may not be loaded) hence "|| true".
-            new ProcessBuilder("/bin/sh", "-c",
-                    "launchctl bootout gui/$(id -u)/com.srd.client 2>/dev/null; "
-                            + "launchctl remove com.srd.client 2>/dev/null; true")
-                    .start().waitFor(3, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            Log.warn("launchctl bootout failed: " + e);
-        }
-        ServerLinks.stopAll();
-        if (peerHost != null) peerHost.stop();
-        releaseSingleInstance();
-        System.exit(0);
     }
 
     private static MenuItem disabled(String text) {
@@ -779,22 +777,26 @@ public final class ClientApp {
 
     /**
      * macOS equivalent of the Windows watchdog: a per-user LaunchAgent that starts the app at
-     * login and restarts it if it exits (KeepAlive, throttled to every 10 s). It goes through
-     * {@code open -W -a <app>} so the app is launched by LaunchServices: macOS then attributes
-     * the Screen Recording / Accessibility / Microphone permissions to this .app rather than to the
-     * bundled java binary, and {@code -W} keeps the job alive for as long as the app runs.
-     * Only installed when running from the .app (the launcher passes {@code srd.appBundle}).
-     * The plist is rewritten on each start, so moving the app keeps it correct.
+     * login and brings it back whenever it stops (Exit, Force Quit, crash): KeepAlive, throttled to
+     * every 10 s. It goes through {@code open -W -a <app>} so the app is launched by
+     * LaunchServices: macOS then attributes the Screen Recording / Accessibility permissions to
+     * this .app, and {@code -W} keeps the job alive for as long as the app runs (if the app is
+     * already running, {@code open -W} just waits for it).
+     *
+     * <p>The job is loaded into the current session right away, not only at the next login, so
+     * the app comes back after being closed today too. Only installed when running from the .app
+     * (the launcher passes {@code srd.appBundle}); rewritten (and reloaded) when the app moved.
      */
     private static void installMacLaunchAgent() {
         String app = System.getProperty("srd.appBundle");
         if (app == null || !app.endsWith(".app")) return;
+        if (app.contains("/AppTranslocation/") || app.startsWith("/Volumes/")) return; // not installed yet
         try {
             File dir = new File(System.getProperty("user.home"), "Library/LaunchAgents");
             dir.mkdirs();
             File plist = new File(dir, "com.srd.client.plist");
             String esc = app.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-            String xml = String.join(System.lineSeparator(),
+            String xml = String.join("\n",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
                     "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
                     "<plist version=\"1.0\">",
@@ -811,12 +813,57 @@ public final class ClientApp {
                     "</dict>",
                     "</plist>",
                     "");
-            try (FileWriter fw = new FileWriter(plist)) {
-                fw.write(xml);
+            String old = plist.isFile() ? new String(java.nio.file.Files.readAllBytes(plist.toPath()), java.nio.charset.StandardCharsets.UTF_8) : "";
+            boolean changed = !xml.equals(old);
+            if (changed) {
+                try (FileWriter fw = new FileWriter(plist)) {
+                    fw.write(xml);
+                }
+                Log.info("LaunchAgent written: " + plist + " (starts " + app + " at login and keeps it running)");
             }
-            Log.info("LaunchAgent installed: " + plist + " (starts " + app + " at login)");
+            String domain = "gui/" + uid();
+            boolean loaded = launchctl("print", domain + "/com.srd.client") == 0;
+            if (loaded && changed) {
+                launchctl("bootout", domain + "/com.srd.client");
+                loaded = false;
+            }
+            if (!loaded) {
+                launchctl("enable", domain + "/com.srd.client");
+                int rc = launchctl("bootstrap", domain, plist.getPath());
+                Log.info("LaunchAgent loaded into this session" + (rc == 0 ? "" : " (launchctl bootstrap exit " + rc + ")"));
+            }
         } catch (IOException e) {
             Log.warn("Could not install LaunchAgent: " + e.getMessage());
+        }
+    }
+
+    private static String uid() {
+        try {
+            Process p = new ProcessBuilder("/usr/bin/id", "-u").start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                String s = r.readLine();
+                return s == null ? "" : s.trim();
+            }
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /** Runs {@code launchctl <args>} quietly; returns its exit code (-1 if it could not run). */
+    private static int launchctl(String... args) {
+        try {
+            List<String> cmd = new ArrayList<>();
+            cmd.add("/bin/launchctl");
+            java.util.Collections.addAll(cmd, args);
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return -1;
+            }
+            return p.exitValue();
+        } catch (Exception e) {
+            return -1;
         }
     }
 

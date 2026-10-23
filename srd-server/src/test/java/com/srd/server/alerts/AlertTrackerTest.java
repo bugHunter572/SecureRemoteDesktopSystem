@@ -32,23 +32,6 @@ class AlertTrackerTest {
     }
 
     @Test
-    void disconnectedAndNoScreenAreRepeated_vpnIsNot() {
-        AlertTracker t = new AlertTracker();
-        t.raise("10.0.0.1", Kind.DISCONNECTED, "lost", 0);
-        t.raise("10.0.0.2", Kind.NO_SCREEN, "no pic", 0);
-        t.raise("10.0.0.3", Kind.VPN, "off", 0);
-        assertEquals(3, t.tick(60 * S, 20 * S, 60 * S, 5 * S, 300 * S, ALL).mattermost.size());
-        assertTrue(t.tick(359 * S, 20 * S, 60 * S, 5 * S, 300 * S, ALL).reminders.isEmpty());
-        Due d = t.tick(360 * S, 20 * S, 60 * S, 5 * S, 300 * S, ALL);
-        assertEquals(2, d.reminders.size());
-        assertEquals("10.0.0.1", d.reminders.get(0).clientId);
-        assertEquals("10.0.0.2", d.reminders.get(1).clientId);
-        assertTrue(t.tick(659 * S, 20 * S, 60 * S, 5 * S, 300 * S, ALL).reminders.isEmpty());
-        assertEquals(2, t.tick(660 * S, 20 * S, 60 * S, 5 * S, 300 * S, ALL).reminders.size());
-        assertTrue(t.tick(1000 * S, 20 * S, 60 * S, 5 * S, 0, ALL).reminders.isEmpty()); // 0 = once only
-    }
-
-    @Test
     void severalClientsGoOutInOnePost() {
         AlertTracker t = new AlertTracker();
         t.raise("a", Kind.DISCONNECTED, "lost", 0);
@@ -66,25 +49,6 @@ class AlertTrackerTest {
         t.raise("a", Kind.DISCONNECTED, "lost", 0);
         t.resolve("a", Kind.DISCONNECTED, "back", 10 * S);
         assertTrue(tick(t, 30).isEmpty());
-    }
-
-    @Test
-    void disconnectedHeldBackWhileReachable_announcedOnceUnreachable_thenConnectedOnRecovery() {
-        AlertTracker t = new AlertTracker();
-        boolean[] unreachable = {false};
-        AlertTracker.Gate gate = p -> unreachable[0];
-        t.raise("a", Kind.DISCONNECTED, "lost", 0);
-        assertTrue(t.tick(70 * S, 20 * S, 60 * S, 5 * S, gate).isEmpty()); // PC answers ping: no alert
-        assertEquals(java.util.List.of("a"), t.openIds(Kind.DISCONNECTED));
-        unreachable[0] = true;
-        Due d = t.tick(80 * S, 20 * S, 60 * S, 5 * S, gate); // PC stops answering
-        assertEquals(1, d.mattermost.size());
-        unreachable[0] = false; // PC is back, app not yet: nothing new
-        assertTrue(t.tick(90 * S, 20 * S, 60 * S, 5 * S, gate).isEmpty());
-        t.resolve("a", Kind.DISCONNECTED, "Reconnected", 100 * S); // app connected and delivered a picture
-        Due back = t.tick(101 * S, 20 * S, 60 * S, 5 * S, gate);
-        assertEquals(1, back.recoveries.size());
-        assertTrue(back.recoveries.get(0).toMattermost);
     }
 
     @Test
@@ -139,7 +103,7 @@ class AlertTrackerTest {
         NotifySettings s = new NotifySettings();
         assertEquals(20, s.popupDelaySec);
         assertEquals(60, s.mattermostDelaySec);
-        assertEquals(NotifySettings.DEFAULT_WEBHOOK, s.webhookUrl);
+        assertEquals("https://comm.easolv.org/hooks/5rjbn17e87n7jqr7jh6h79gooy", s.webhookUrl);
         s.webhookUrl = "https://chat.example/hooks/abc";
         s.alertUserQuit = true;
         s.mattermostDelaySec = 90;

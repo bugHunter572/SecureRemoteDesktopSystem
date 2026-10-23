@@ -2,6 +2,7 @@ package com.srd.client.viewer;
 
 import com.srd.client.ClientContext;
 import com.srd.common.input.KeyboardGrabber;
+import com.srd.common.protocol.Hello;
 import com.srd.common.input.KeyboardGrabbers;
 import com.srd.common.protocol.MessageType;
 import com.srd.common.protocol.MuxConnection;
@@ -11,8 +12,12 @@ import com.srd.common.util.Log;
 import com.srd.common.util.Threads;
 import com.srd.common.ui.RemoteViewerFrame;
 import com.srd.common.ui.ViewerSession;
+import java.awt.Component;
+import java.awt.Container;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import javax.swing.JOptionPane;
+import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 
 /**
@@ -46,6 +51,7 @@ public final class PeerViewerWindow {
         if (grabber != null) session.setKeyboardGrabber(grabber);
         String remoteName = conn.remoteHello().name();
         RemoteViewerFrame frame = new RemoteViewerFrame(session, "Peer Screen Viewer - " + remoteName + " (" + ip + ")");
+        if (isMac(conn.remoteHello())) hidePenButton(frame);
         frame.setOnClose(() -> {
             session.close();
             conn.closeGracefully("viewer closed");
@@ -66,5 +72,30 @@ public final class PeerViewerWindow {
         session.startStream(StreamRequest.PRESET_BALANCED, ScreenInfo.ALL_MONITORS, 60);
         frame.setVisible(true);
         Log.info("Viewing peer " + remoteName + " at " + ip);
+    }
+
+    /** The broadcaster is a Mac (its hello carries {@code os.name}, e.g. "Mac OS X 15.1 (aarch64)"). */
+    static boolean isMac(Hello h) {
+        String os = h.get(Hello.K_OS, "").toLowerCase(Locale.ROOT);
+        return os.startsWith("mac") || os.startsWith("darwin");
+    }
+
+    /**
+     * A Mac broadcaster does not accept drawings, so the pen button is removed from the control
+     * bar (the rest - control, sound, screenshots - stays). Found by its tooltip, which keeps the
+     * shared viewer code untouched.
+     */
+    private static void hidePenButton(Container c) {
+        for (Component child : c.getComponents()) {
+            if (child instanceof JToggleButton) {
+                String tip = ((JToggleButton) child).getToolTipText();
+                if (tip != null && tip.startsWith("Draw on the remote screen")) {
+                    child.setVisible(false);
+                    Log.info("Pen hidden: drawing is not available when a Mac is broadcasting");
+                    return;
+                }
+            }
+            if (child instanceof Container) hidePenButton((Container) child);
+        }
     }
 }

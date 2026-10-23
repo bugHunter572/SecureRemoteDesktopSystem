@@ -51,6 +51,8 @@ public final class ServerLink {
     private volatile ScheduledFuture<?> snapshotTask;
     private volatile ScheduledFuture<?> statusTask;
     private volatile boolean snapshotInFlight;
+    /** A snapshot was asked for while one was being taken (e.g. a new Image Quality): take another after it. */
+    private volatile boolean snapshotAgain;
     private volatile String lastError;
     /** Last CLIENT_STATE from the server ("" = not reported, e.g. not connected). */
     private volatile String serverState = "";
@@ -165,8 +167,12 @@ public final class ServerLink {
                 initialDelaySec, Math.max(1, intervalSec), TimeUnit.SECONDS);
     }
 
-    private void requestSnapshot() {
-        if (snapshotInFlight || !isConnected()) return;
+    private synchronized void requestSnapshot() {
+        if (!isConnected()) return;
+        if (snapshotInFlight) {
+            snapshotAgain = true;
+            return;
+        }
         snapshotInFlight = true;
         SNAPSHOTS.execute(() -> {
             try {
@@ -176,7 +182,13 @@ public final class ServerLink {
             } catch (Exception e) {
                 Log.warn(label + ": snapshot failed: " + e);
             } finally {
-                snapshotInFlight = false;
+                boolean again;
+                synchronized (ServerLink.this) {
+                    snapshotInFlight = false;
+                    again = snapshotAgain;
+                    snapshotAgain = false;
+                }
+                if (again) requestSnapshot();
             }
         });
     }
@@ -221,6 +233,7 @@ public final class ServerLink {
 
     private void applyServerConfig(String cfg) {
         Log.info(label + ": server configuration " + cfg);
+        boolean qualityChanged = false;
         for (String kv : cfg.split(";")) {
             int eq = kv.indexOf('=');
             if (eq <= 0) continue;
@@ -232,7 +245,11 @@ public final class ServerLink {
                     break;
                 case "IMAGE_QUALITY":
                     try {
-                        ctx.snapshotQuality = Math.max(0.1f, Math.min(1f, Float.parseFloat(v)));
+                        float q = Math.max(0.1f, Math.min(1f, Float.parseFloat(v)));
+                        if (q != ctx.snapshotQuality) {
+                            ctx.snapshotQuality = q;
+                            qualityChanged = true;
+                        }
                     } catch (NumberFormatException ignored) {
                     }
                     break;
@@ -251,6 +268,11 @@ public final class ServerLink {
                 default:
                     break;
             }
+        }
+        if (qualityChanged) {
+            // Show the new quality now, not at the next interval (up to 60 s later).
+            Log.info(label + ": image quality now " + ctx.snapshotQuality + "; sending a fresh snapshot");
+            requestSnapshot();
         }
     }
 }

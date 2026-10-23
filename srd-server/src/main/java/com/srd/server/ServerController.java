@@ -35,8 +35,6 @@ import com.srd.server.ui.LiveViewWindow;
 import com.srd.server.ui.RecordsWindow;
 import com.srd.server.ui.NotificationSettingsDialog;
 import com.srd.server.ui.ServerConfigDialog;
-import com.srd.server.sync.SyncPayload;
-import com.srd.server.sync.SyncSender;
 import com.srd.server.ui.ServerWindow;
 import com.srd.server.ui.Toast;
 import com.srd.server.util.Images;
@@ -200,11 +198,6 @@ public final class ServerController implements ClientListener.Handler, SessionEv
             for (Map.Entry<String, ClientSession> e : sessions.entrySet()) {
                 if (names.containsKey(e.getKey())) v.visit(e.getKey(), e.getValue().connectedAtMs(), e.getValue().lastFrameMs());
             }
-        }
-
-        @Override
-        public boolean reachable(String clientId) {
-            return NetUtil.isHostReachable(clientId);
         }
 
         @Override
@@ -491,19 +484,28 @@ public final class ServerController implements ClientListener.Handler, SessionEv
     }
 
     /**
-     * A client's connection ended (closed, or MuxConnection's 10 s liveness timeout): the status is
-     * Disconnected and it is recorded in Today's Records. (A ping used to guess "Power Off" for
-     * unreachable hosts; it was not reliable, so every loss is just Disconnected now.)
+     * A client's connection ended (closed, or MuxConnection's 10 s liveness timeout). Ping the host
+     * to tell "app gone / network blip" (Disconnected) from "computer off" (Power Off), record it
+     * in Today's Records and raise one notification. The ping runs on its own daemon thread.
      */
     private void evaluateAndSetAwayStatus(String clientId, boolean userQuit) {
-        if (sessions.containsKey(clientId)) return;
-        Log.info("[CONN] " + clientId + " away -> status Disconnected");
-        logEvent(clientId, EventLogRepository.DISCONNECT);
-        ui(() -> {
-            if (sessions.containsKey(clientId)) return;
-            window.setStatus(clientId, ClientTableModel.STATUS_DISCONNECTED);
-            window.setOffline(clientId, true, null);
-            notifyClientStatus(clientId, ClientTableModel.STATUS_DISCONNECTED);
+        Threads.start("ping-" + clientId, () -> {
+            boolean reachable = NetUtil.isHostReachable(clientId);
+            if (sessions.containsKey(clientId)) return; // reconnected while pinging
+            String status = reachable ? ClientTableModel.STATUS_DISCONNECTED : ClientTableModel.STATUS_POWER_OFF;
+            Log.info("[CONN] " + clientId + " away -> host "
+                    + (reachable ? "reachable, status Disconnected" : "unreachable, status Power Off"));
+            logEvent(clientId, reachable ? EventLogRepository.DISCONNECT : EventLogRepository.POWEROFF);
+            if (!userQuit) {
+                notifier.clientAway(clientId, reachable ? "PC is on, but the client app is closed or unreachable"
+                        : "PC is not responding (powered off or network down)");
+            }
+            ui(() -> {
+                if (sessions.containsKey(clientId)) return;
+                window.setStatus(clientId, status);
+                window.setOffline(clientId, true, null);
+                notifyClientStatus(clientId, status);
+            });
         });
     }
 
@@ -835,14 +837,9 @@ public final class ServerController implements ClientListener.Handler, SessionEv
         ServerConfig edited = ServerConfigDialog.show(window, config);
         if (edited == null) return;
         boolean pskChanged = !edited.getPsk().equals(config.getPsk());
-        boolean thumbChanged = edited.getImageQuality() != config.getImageQuality()
-                || edited.getThumbMaxWidth() != config.getThumbMaxWidth();
         setConfig(edited);
         saveConfig();
         broadcastConfig();
-        // The new quality/size only shows on the next picture from each client (up to a whole
-        // interval away), so ask for fresh ones now.
-        if (thumbChanged) refreshAllScreens();
         for (Map.Entry<String, LiveViewWindow> e : liveWindows.entrySet()) {
             String ip = e.getKey().startsWith(PEER_KEY_PREFIX) ? e.getKey().substring(PEER_KEY_PREFIX.length()) : e.getKey();
             applyControlPolicy(e.getValue(), ip);
@@ -853,7 +850,7 @@ public final class ServerController implements ClientListener.Handler, SessionEv
     }
 
     public void showNotificationSettingsDialog() {
-        NotifySettings edited = NotificationSettingsDialog.show(window, config.getNotify(), serverName, config.getScreenshotInterval());
+        NotifySettings edited = NotificationSettingsDialog.show(window, config.getNotify(), serverName);
         if (edited == null) return;
         ServerConfig c = config.copy();
         c.setNotify(edited);
@@ -916,30 +913,6 @@ public final class ServerController implements ClientListener.Handler, SessionEv
         window.addClient(ip, displayName, sessions.containsKey(ip) ? ClientTableModel.STATUS_CONNECTED
                 : ClientTableModel.STATUS_DISCONNECTED, lastSeenNow(), "", vpn.get(ip), new Dimension(1920, 1080));
         if (sessions.containsKey(ip)) window.setOffline(ip, false, null);
-    }
-
-    /**
-     * Sync button: sends the client list (names) and the tag ranges to every alternative server
-     * (observers listen on {@link SyncPayload#DEFAULT_PORT}); shows what each one answered.
-     */
-    private static final ExecutorService SYNC = Threads.pool("sync", 1);
-
-    public void syncAlternativeServers() {
-        List<String> targets = new ArrayList<>(config.getAlternativeIPs());
-        if (targets.isEmpty()) {
-            JOptionPane.showMessageDialog(window, "No alternative servers are set.\nAdd them under Edit > Server Configuration > Alternative IPs.",
-                    "Sync", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        SyncPayload payload = new SyncPayload(new java.util.TreeMap<>(names), config.getNotify().tags);
-        String psk = config.getPsk();
-        SYNC.execute(() -> {
-            List<String> results = SyncSender.send(targets, Integer.getInteger("srd.syncPort", SyncPayload.DEFAULT_PORT), psk, payload);
-            Log.info("[SYNC] " + names.size() + " client(s) sent: " + results);
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(window,
-                    names.size() + " client(s) sent:\n\n" + String.join("\n", results), "Sync to alternative servers",
-                    JOptionPane.INFORMATION_MESSAGE));
-        });
     }
 
     public void renameClient(String clientId, String newName) {

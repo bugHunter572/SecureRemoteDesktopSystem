@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- @VERSION@ is filled in by build/package_macos.py -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>SecureRemoteDesktopClient</string>
+    <key>CFBundleDisplayName</key>
+    <string>Secure Remote Desktop Client</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.srd.client</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>SecureRemoteDesktopClient</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <!-- Menu-bar (tray) agent: no Dock icon, no app menu. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- The microphone is not used (sound = computer audio via the bundled srd-system-audio helper,
+         under Screen Recording). The key stays so macOS never terminates the app if a device opens. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Secure Remote Desktop shares this Mac's computer audio with viewers. It does not record the microphone.</string>
+</dict>
+</plist>
