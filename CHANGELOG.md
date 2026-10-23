@@ -2,6 +2,12 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
+## [3.0.9] - 2026-10-23
+
+### Changed
+- Version bump only: the Windows client, server and observer are built and published again from the
+  same code as 3.0.8. The macOS client is released under the same version from the `macos` branch.
+
 ## [3.0.8] - 2026-10-23
 
 ### Changed
