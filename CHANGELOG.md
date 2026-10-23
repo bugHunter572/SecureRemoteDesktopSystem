@@ -2,6 +2,17 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
+## [3.0.7] - 2026-10-21
+
+### Added
+- **Automatic updates for the Windows client, server and observer.** Signed release manifests (Ed25519), SHA-256
+  checked packages, swap by `apply-update.ps1` after the app exits, automatic rollback if the new version is not
+  healthy. GitHub Actions `release` workflow builds and publishes on a `v*` tag. See DEPLOYMENT.md section 5.
+
+### Changed
+- The Mattermost webhook, server and bot token are no longer built in; set them in Edit > Notification Settings.
+- macOS packaging scripts removed (no `.app`/`.dmg` build).
+
 ## [3.0.6] - 2026-10-17
 
 ### Fixed

@@ -58,8 +58,15 @@ if ($LASTEXITCODE -ne 0) { throw "Maven build failed ($LASTEXITCODE)" }
 # ---- 2. launch4j
 foreach ($a in $apps) {
     $cfg = Join-Path $root "$($a.Module)\launch4j.xml"
+    New-Item -ItemType Directory -Force (Join-Path $root "$($a.Module)\bin") | Out-Null   # absent in a fresh checkout
     Write-Host "==> launch4jc $cfg" -ForegroundColor Cyan
-    & $launch4jc $cfg
+    # CI (CI=true): run the jar of the unpacked Launch4j 3.50 zip; launch4jc.exe needs a registered JRE.
+    $l4jJar = Join-Path $Launch4jHome 'launch4j.jar'
+    if ($env:CI -and (Test-Path $l4jJar)) {
+        & java -jar $l4jJar $cfg
+    } else {
+        & $launch4jc $cfg
+    }
     if ($LASTEXITCODE -ne 0) { throw "launch4j failed for $($a.Module) ($LASTEXITCODE)" }
 }
 
