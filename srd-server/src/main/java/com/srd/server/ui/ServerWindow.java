@@ -392,6 +392,10 @@ public final class ServerWindow extends JFrame implements ClientTableRenderers.R
         JMenuItem connectPeerItem = new JMenuItem("Connect to Broadcasting Client");
         connectPeerItem.addActionListener(e -> ctl.connectToBroadcastingClient());
         settingsMenu.add(connectPeerItem);
+        JMenuItem syncItem = new JMenuItem("Sync to Alternative Servers");
+        syncItem.setToolTipText("Send the client list (names) and tag ranges to the observers listed under Alternative IPs");
+        syncItem.addActionListener(e -> ctl.syncAlternativeServers());
+        settingsMenu.add(syncItem);
 
         JCheckBoxMenuItem notificationsItem = new JCheckBoxMenuItem("Toggle Notifications");
         notificationsItem.setState(notificationsOn);

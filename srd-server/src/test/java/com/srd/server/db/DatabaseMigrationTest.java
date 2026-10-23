@@ -136,7 +136,7 @@ class DatabaseMigrationTest {
             assertTrue(ev.log("c", EventLogRepository.POWEROFF));
             String cell = ev.todaysRecordsCell("c");
             assertTrue(cell.startsWith(";icons/connected.png,"), cell);
-            assertTrue(cell.contains(";;icons/computer-off.png,"), cell);
+            assertTrue(cell.contains(";;icons/x-off.png,"), cell);
             assertEquals(2, ev.allEvents("c").size());
         } finally {
             db.close();

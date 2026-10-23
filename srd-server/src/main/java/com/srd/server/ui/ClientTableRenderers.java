@@ -108,7 +108,7 @@ public final class ClientTableRenderers {
             String iconName = null;
             if (ClientTableModel.STATUS_CONNECTED.equals(status)) iconName = "connected.png";
             else if (ClientTableModel.STATUS_DISCONNECTED.equals(status)) iconName = "disconnected.png";
-            else if (ClientTableModel.STATUS_POWER_OFF.equals(status)) iconName = "computer-off.png";
+            else if (ClientTableModel.STATUS_POWER_OFF.equals(status)) iconName = "x-off.png";
             ImageIcon icon = iconName == null ? null : Icons.icon(iconName, Math.max(8, table.getRowHeight() - 10));
             if (icon != null) {
                 super.getTableCellRendererComponent(table, " ", isSelected, hasFocus, row, column);
@@ -256,9 +256,10 @@ public final class ClientTableRenderers {
     private static final Map<String, DotIcon> DOTS = new ConcurrentHashMap<>();
 
     static Color dim(Color c) {
-        // Blend 55 % towards light gray: the last known state of a disconnected client.
-        int g = 200;
-        return new Color((c.getRed() * 45 + g * 55) / 100, (c.getGreen() * 45 + g * 55) / 100, (c.getBlue() * 45 + g * 55) / 100);
+        // Gray, whatever the state: the last known state of a disconnected client (the glyph still tells which).
+        int lum = (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000;
+        int g = (lum * 30 + 175 * 70) / 100;
+        return new Color(g, g, g);
     }
 
     static DotIcon dot(VpnGuardStatus.State s, boolean dimmed) {
@@ -502,7 +503,7 @@ public final class ClientTableRenderers {
                 String status = value != null ? value.toString() : "";
                 String name = "CONNECT".equals(status) ? "connected.png"
                         : "DISCONNECT".equals(status) ? "disconnected.png"
-                        : "POWEROFF".equals(status) ? "computer-off.png"
+                        : "POWEROFF".equals(status) ? "x-off.png"
                         : "NO_SCREEN".equals(status) ? "no-screen.png"
                         : "VPN_OFF".equals(status) ? "vpn-off.png" : null;
                 ImageIcon icon = name == null ? null : Icons.icon(name, Math.max(8, table.getRowHeight() - 10));

@@ -3,14 +3,22 @@ package com.srd.server.ui;
 import com.srd.server.config.ServerConfig;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
+import javax.swing.JScrollPane;
+import javax.swing.ListSelectionModel;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
@@ -24,15 +32,57 @@ public final class ServerConfigDialog {
     /** Shows the dialog; returns the edited copy, or null if cancelled / invalid. */
     public static ServerConfig show(Component parent, ServerConfig current) {
         ServerConfig cfg = current.copy();
-        JPanel panel = new JPanel(new GridLayout(8, 2, 5, 5));
+        JPanel panel = new JPanel(new GridLayout(7, 2, 5, 5));
 
         JCheckBox autoAddCheckbox = new JCheckBox("Auto-add clients on connection", cfg.isAutoAddClients());
         JCheckBox screenControlCheckbox = new JCheckBox("Enable screen control", cfg.isScreenControlEnabled());
         JCheckBox screenshotSaveCheckbox = new JCheckBox("Enable screenshot saving", cfg.isScreenshotSaveEnabled());
         JTextField intervalField = new JTextField(String.valueOf(cfg.getScreenshotInterval()));
         intervalField.setToolTipText("Screenshot interval in seconds (1-3600)");
-        JTextField alternativeIPsField = new JTextField(String.join(",", cfg.getAlternativeIPs()));
-        alternativeIPsField.setToolTipText("Comma-separated list of alternative IP addresses");
+        // Alternative IPs: a list with an add field, instead of one comma-separated text.
+        DefaultListModel<String> altModel = new DefaultListModel<>();
+        for (String ip : cfg.getAlternativeIPs()) altModel.addElement(ip);
+        JList<String> altList = new JList<>(altModel);
+        altList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        JScrollPane altScroll = new JScrollPane(altList);
+        altScroll.setPreferredSize(new Dimension(300, 110));
+        JTextField altInput = new JTextField(14);
+        altInput.setToolTipText("An IP address; several can be pasted at once, separated by commas or spaces");
+        JButton altAdd = new JButton("Add");
+        JButton altRemove = new JButton("Remove");
+        altRemove.setEnabled(false);
+        altList.addListSelectionListener(e -> altRemove.setEnabled(!altList.isSelectionEmpty()));
+        Runnable addIp = () -> {
+            StringBuilder bad = new StringBuilder();
+            for (String ip : altInput.getText().trim().split("[,;\\s]+")) {
+                if (ip.isEmpty()) continue;
+                if (!ServerConfig.isValidIP(ip)) {
+                    bad.append(bad.length() == 0 ? "" : ", ").append(ip);
+                } else if (!altModel.contains(ip)) {
+                    altModel.addElement(ip);
+                }
+            }
+            if (bad.length() > 0) {
+                JOptionPane.showMessageDialog(altInput, "Not a valid IP address: " + bad, "Invalid IP", JOptionPane.ERROR_MESSAGE);
+                altInput.setText(bad.toString());
+            } else {
+                altInput.setText("");
+            }
+            altInput.requestFocusInWindow();
+        };
+        altAdd.addActionListener(e -> addIp.run());
+        altInput.addActionListener(e -> addIp.run()); // Enter adds
+        altRemove.addActionListener(e -> {
+            for (String ip : new ArrayList<>(altList.getSelectedValuesList())) altModel.removeElement(ip);
+        });
+        JPanel altAddRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        altAddRow.add(altInput);
+        altAddRow.add(altAdd);
+        altAddRow.add(altRemove);
+        JPanel altPanel = new JPanel(new BorderLayout(0, 5));
+        altPanel.setBorder(BorderFactory.createTitledBorder("Alternative IPs (other servers the clients also report to)"));
+        altPanel.add(altScroll, BorderLayout.CENTER);
+        altPanel.add(altAddRow, BorderLayout.SOUTH);
 
         // JPEG quality clients encode thumbnails/screenshots at, 10-100 %.
         int qualityPercent = Math.round(cfg.getImageQuality() * 100);
@@ -64,12 +114,14 @@ public final class ServerConfigDialog {
         panel.add(imageQualityPanel);
         panel.add(new JLabel("Thumbnail Size (px):"));
         panel.add(thumbWidth);
-        panel.add(new JLabel("Alternative IPs:"));
-        panel.add(alternativeIPsField);
         panel.add(new JLabel("Pre-shared Key:"));
         panel.add(pskField);
 
-        int result = JOptionPane.showConfirmDialog(parent, panel, "Server Configuration",
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.add(panel, BorderLayout.NORTH);
+        content.add(altPanel, BorderLayout.CENTER);
+
+        int result = JOptionPane.showConfirmDialog(parent, content, "Server Configuration",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) return null;
 
@@ -94,13 +146,7 @@ public final class ServerConfigDialog {
         }
 
         List<String> newAlternativeIPs = new ArrayList<>();
-        String ips = alternativeIPsField.getText().trim();
-        if (!ips.isEmpty()) {
-            for (String ip : ips.split(",")) {
-                ip = ip.trim();
-                if (!ip.isEmpty() && ServerConfig.isValidIP(ip)) newAlternativeIPs.add(ip);
-            }
-        }
+        for (int i = 0; i < altModel.size(); i++) newAlternativeIPs.add(altModel.get(i));
         cfg.setAlternativeIPs(newAlternativeIPs);
         cfg.setAutoAddClients(autoAddCheckbox.isSelected());
         cfg.setScreenControlEnabled(screenControlCheckbox.isSelected());

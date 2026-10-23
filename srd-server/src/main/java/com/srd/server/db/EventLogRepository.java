@@ -77,7 +77,7 @@ public final class EventLogRepository {
             case DISCONNECT:
                 return "icons/disconnected.png";
             case POWEROFF:
-                return "icons/computer-off.png";
+                return "icons/x-off.png";
             case NO_SCREEN:
                 return "icons/no-screen.png";
             case VPN_OFF:

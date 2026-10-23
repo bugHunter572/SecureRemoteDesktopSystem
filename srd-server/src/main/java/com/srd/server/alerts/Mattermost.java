@@ -28,7 +28,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Mattermost incoming-webhook client and message layout. Uses {@link HttpURLConnection} (already in
+ * Mattermost client (bot account via the REST API, or an incoming webhook) and message layout. Uses {@link HttpURLConnection} (already in
  * the trimmed runtime, no extra module), one short-lived background thread, short timeouts and a
  * couple of quick retries. A post that still fails is kept (bounded, at most an hour) and retried
  * by {@link #retryPending}, so a chat-server outage never touches the UI or the clients and
@@ -52,6 +52,33 @@ public final class Mattermost {
         }
     }
 
+    /** Where posts go: a bot (server + token + channel) or, without a token, an incoming webhook. */
+    public static final class Target {
+        final String webhookUrl;
+        final String serverUrl;
+        final String token;
+        final String channel;
+
+        public Target(String webhookUrl, String serverUrl, String token, String channel) {
+            this.webhookUrl = webhookUrl;
+            this.serverUrl = serverUrl == null ? "" : serverUrl.trim().replaceAll("/+$", "");
+            this.token = token == null ? "" : token.trim();
+            this.channel = channel == null ? "" : channel.trim();
+        }
+
+        public boolean isBot() {
+            return !token.isEmpty() && !channel.isEmpty() && !serverUrl.isEmpty();
+        }
+
+        public String serverUrl() {
+            return serverUrl;
+        }
+
+        public String webhookUrl() {
+            return webhookUrl;
+        }
+    }
+
     /** Called on the worker thread when delivery starts failing and when it works again. */
     public interface Health {
         void unreachable(String reason);
@@ -70,12 +97,12 @@ public final class Mattermost {
             new LinkedBlockingQueue<>(), Threads.factory("mattermost", Thread.NORM_PRIORITY));
 
     private static final class Pending {
-        final String url;
+        final Target target;
         final String text;
         final long created = System.currentTimeMillis();
 
-        Pending(String url, String text) {
-            this.url = url;
+        Pending(Target target, String text) {
+            this.target = target;
             this.text = text;
         }
     }
@@ -126,18 +153,18 @@ public final class Mattermost {
     // ------------------------------------------------------------------ transport
 
     /** Queues a post; a few quick retries, then it is kept and retried by {@link #retryPending}. */
-    public void post(String webhookUrl, String markdown) {
+    public void post(Target target, String markdown) {
         worker.execute(() -> {
             for (int attempt = 0; ; attempt++) {
                 try {
-                    postBlocking(webhookUrl, markdown);
+                    postBlocking(target, markdown);
                     Log.info("[MATTERMOST] notification sent");
                     delivered();
                     return;
                 } catch (IOException e) {
                     if (attempt >= RETRY_DELAYS_SEC.length) {
                         Log.warn("[MATTERMOST] not delivered (" + e.getMessage() + "); kept for retry");
-                        keep(new Pending(webhookUrl, markdown), e.getMessage());
+                        keep(new Pending(target, markdown), e.getMessage());
                         return;
                     }
                     Log.warn("[MATTERMOST] send failed (" + e.getMessage() + "); retrying in " + RETRY_DELAYS_SEC[attempt] + " s");
@@ -182,7 +209,7 @@ public final class Mattermost {
                     }
                 }
                 try {
-                    postBlocking(p.url, p.text);
+                    postBlocking(p.target, p.text);
                 } catch (IOException e) {
                     Log.debug("[MATTERMOST] retry failed: " + e.getMessage());
                     return;
@@ -197,25 +224,90 @@ public final class Mattermost {
     }
 
     /** Posts and throws on any failure; used directly by the "send test" button (off the EDT). */
-    public static void postBlocking(String webhookUrl, String markdown) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(webhookUrl).openConnection();
+    public static void postBlocking(Target t, String markdown) throws IOException {
+        if (t.isBot()) {
+            String body = "{\"channel_id\":" + jsonString(resolveChannel(t)) + ",\"message\":" + jsonString(markdown) + "}";
+            send(t.serverUrl + "/api/v4/posts", t.token, body);
+        } else {
+            send(t.webhookUrl, null, "{\"text\":" + jsonString(markdown) + "}");
+        }
+    }
+
+    private static final java.util.Map<String, String> CHANNEL_IDS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A channel id as is; a channel name (or display name) is looked up among the bot's own channels once. */
+    private static String resolveChannel(Target t) throws IOException {
+        String ch = t.channel.startsWith("~") ? t.channel.substring(1) : t.channel;
+        if (ch.matches("[a-z0-9]{26}")) return ch;
+        String key = t.serverUrl + "|" + ch.toLowerCase();
+        String known = CHANNEL_IDS.get(key);
+        if (known != null) return known;
+        String teams = get(t.serverUrl + "/api/v4/users/me/teams", t.token);
+        java.util.regex.Matcher tm = java.util.regex.Pattern.compile("\"id\":\"([a-z0-9]{26})\"").matcher(teams);
+        while (tm.find()) {
+            String list = get(t.serverUrl + "/api/v4/users/me/teams/" + tm.group(1) + "/channels", t.token);
+            for (String chunk : list.split("\\{\"id\":\"")) {
+                if (chunk.length() < 26) continue;
+                String id = chunk.substring(0, 26);
+                String name = field(chunk, "name");
+                String display = field(chunk, "display_name");
+                if (ch.equalsIgnoreCase(name) || ch.equalsIgnoreCase(display)) {
+                    CHANNEL_IDS.put(key, id);
+                    return id;
+                }
+            }
+        }
+        throw new IOException("channel \"" + ch + "\" not found (is the bot a member of it?)");
+    }
+
+    private static String field(String json, String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"" + name + "\":\"([^\"]*)\"").matcher(json);
+        return m.find() ? m.group(1) : "";
+    }
+
+    private static String get(String url, String token) throws IOException {
+        HttpURLConnection c = open(url);
+        try {
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            int code = c.getResponseCode();
+            if (code / 100 != 2) throw new IOException(httpError(code));
+            try (InputStream in = c.getInputStream()) {
+                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static String httpError(int code) {
+        return "HTTP " + code + (code == 401 ? " (bot token not accepted)" : code == 403 ? " (bot is not allowed to post there)" : "");
+    }
+
+    private static HttpURLConnection open(String url) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         if (c instanceof HttpsURLConnection) {
             SSLSocketFactory f = socketFactory();
             if (f != null) ((HttpsURLConnection) c).setSSLSocketFactory(f);
         }
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(8000);
+        return c;
+    }
+
+    private static void send(String url, String bearer, String json) throws IOException {
+        HttpURLConnection c = open(url);
         try {
-            c.setConnectTimeout(5000);
-            c.setReadTimeout(8000);
             c.setRequestMethod("POST");
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            byte[] body = ("{\"text\":" + jsonString(markdown) + "}").getBytes(StandardCharsets.UTF_8);
+            if (bearer != null) c.setRequestProperty("Authorization", "Bearer " + bearer);
+            byte[] body = json.getBytes(StandardCharsets.UTF_8);
             c.setFixedLengthStreamingMode(body.length);
             try (OutputStream out = c.getOutputStream()) {
                 out.write(body);
             }
             int code = c.getResponseCode();
-            if (code / 100 != 2) throw new IOException("HTTP " + code);
+            if (code / 100 != 2) throw new IOException(httpError(code));
             try (InputStream in = c.getInputStream()) {
                 byte[] buf = new byte[512];
                 while (in.read(buf) > 0) {

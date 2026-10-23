@@ -41,7 +41,7 @@ public final class AlertCenter {
                 Log.info("[VPN] restored " + displayName + " (" + clientId + "): " + next.summary());
                 break;
             default:
-                if (next.state == VpnGuardStatus.State.PROTECTED) highlighted.remove(clientId);
+                if (VpnAlertLogic.serviceRunning(next.state)) highlighted.remove(clientId);
         }
         return d;
     }

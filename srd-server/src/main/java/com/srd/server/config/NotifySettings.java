@@ -8,8 +8,13 @@ import java.util.Map;
  * server swaps in a fresh copy on every change.
  */
 public final class NotifySettings {
-    /** Default incoming webhook; replaceable in the settings dialog. */
-    public static final String DEFAULT_WEBHOOK = "https://comm.easolv.org/hooks/5rjbn17e87n7jqr7jh6h79gooy";
+    /** No built-in webhook: set it in the settings dialog (never commit a real one). */
+    public static final String DEFAULT_WEBHOOK = "";
+
+    /** No built-in Mattermost server or bot token: set them in the settings dialog (never commit real ones). */
+    public static final String DEFAULT_BOT_SERVER = "";
+    public static final String DEFAULT_BOT_TOKEN = "";
+    public static final String DEFAULT_BOT_CHANNEL = "screenapp";
 
     public static final String DEFAULT_TAGS = String.join("\n",
             "@acs 192.168.110.100 ~ 104",
@@ -41,9 +46,16 @@ public final class NotifySettings {
 
     public boolean mattermost = true;
     public String webhookUrl = DEFAULT_WEBHOOK;
+    /** Bot account: posts go through the REST API with this token (a webhook is used only while the token is empty). */
+    public String botServer = DEFAULT_BOT_SERVER;
+    public String botToken = DEFAULT_BOT_TOKEN;
+    /** Channel id, or channel name / display name (the bot must be a member). */
+    public String botChannel = DEFAULT_BOT_CHANNEL;
     public int mattermostDelaySec = 60;
     /** Problems this close to the delay ride along in the same post. */
     public int mattermostGroupSec = 5;
+    /** While a client stays "ScreenApp Disconnected", post it again this often: -1 = the screen interval, 0 = once only. */
+    public int mattermostRepeatSec = -1;
     /** Who to tag per client IP range, one line each: "@tag first-ip ~ last". See TagMap. */
     public String tags = DEFAULT_TAGS;
 
@@ -65,8 +77,12 @@ public final class NotifySettings {
         m.put("notify.clients", String.valueOf(notifyClients));
         m.put("notify.mattermost", String.valueOf(mattermost));
         m.put("notify.webhook", webhookUrl);
+        m.put("notify.botServer", botServer);
+        m.put("notify.botToken", botToken);
+        m.put("notify.botChannel", botChannel);
         m.put("notify.mattermostDelay", String.valueOf(mattermostDelaySec));
         m.put("notify.mattermostGroup", String.valueOf(mattermostGroupSec));
+        m.put("notify.mattermostRepeat", String.valueOf(mattermostRepeatSec));
         m.put("notify.tags", tags);
         return m;
     }
@@ -86,8 +102,12 @@ public final class NotifySettings {
         s.mattermost = bool(m, "notify.mattermost", s.mattermost);
         String url = m.get("notify.webhook");
         if (url != null && !url.trim().isEmpty()) s.webhookUrl = url.trim();
+        if (m.get("notify.botServer") != null) s.botServer = m.get("notify.botServer").trim();
+        if (m.get("notify.botToken") != null) s.botToken = m.get("notify.botToken").trim();
+        if (m.get("notify.botChannel") != null) s.botChannel = m.get("notify.botChannel").trim();
         s.mattermostDelaySec = num(m, "notify.mattermostDelay", s.mattermostDelaySec, 0, 86400);
         s.mattermostGroupSec = num(m, "notify.mattermostGroup", s.mattermostGroupSec, 0, 600);
+        s.mattermostRepeatSec = num(m, "notify.mattermostRepeat", s.mattermostRepeatSec, -1, 86400);
         String tags = m.get("notify.tags");
         if (tags != null) s.tags = tags.trim();
         return s;
@@ -105,6 +125,16 @@ public final class NotifySettings {
         } catch (NumberFormatException e) {
             return def;
         }
+    }
+
+    /** Where Mattermost posts go now. */
+    public com.srd.server.alerts.Mattermost.Target mattermostTarget() {
+        return new com.srd.server.alerts.Mattermost.Target(webhookUrl, botServer, botToken, botChannel);
+    }
+
+    /** Bot settings complete, or else a valid webhook. */
+    public boolean mattermostConfigured() {
+        return mattermostTarget().isBot() ? isValidWebhook(botServer) : isValidWebhook(webhookUrl);
     }
 
     /** True for an http(s) URL; the dialog refuses anything else. */

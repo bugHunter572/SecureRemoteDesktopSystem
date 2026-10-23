@@ -48,6 +48,17 @@ public final class TagMap {
         return m;
     }
 
+    /** The parsed lines as {tag, first IP, last IP} (last equals first for a single address), for the settings table. */
+    public List<String[]> rows() {
+        List<String[]> out = new ArrayList<>();
+        for (Range r : ranges) out.add(new String[] {r.tag, ipText(r.from), ipText(r.to)});
+        return out;
+    }
+
+    private static String ipText(long v) {
+        return ((v >> 24) & 255) + "." + ((v >> 16) & 255) + "." + ((v >> 8) & 255) + "." + (v & 255);
+    }
+
     /** The tag for this client IP, or "" if no range covers it. */
     public String tagFor(String ip) {
         long v = ip(ip == null ? "" : ip.trim());
