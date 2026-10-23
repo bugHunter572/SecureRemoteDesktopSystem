@@ -74,6 +74,19 @@ public final class Updater {
 
     /** Downloads the zip, checks size and SHA-256, unpacks it under {@code work}. */
     public Prepared prepare(UpdateManifest m, File work, String exeName) throws IOException {
+        File zip = downloadZip(m, work);
+        File stage = new File(work, "stage");
+        unzip(zip, stage);
+        zip.delete();
+        File root = payloadRoot(stage, exeName);
+        return new Prepared(m, root);
+    }
+
+    /**
+     * Downloads the zip into {@code work} and checks size and SHA-256; returns it still packed. macOS
+     * unpacks it with {@code ditto} instead, because Java's unzip drops the executable bits.
+     */
+    public File downloadZip(UpdateManifest m, File work) throws IOException {
         if (m.size <= 0 || m.size > MAX_PACKAGE) throw new IOException("unreasonable package size " + m.size);
         deleteTree(work);
         if (!work.mkdirs() && !work.isDirectory()) throw new IOException("cannot create " + work);
@@ -84,11 +97,7 @@ public final class Updater {
             zip.delete();
             throw new IOException("package hash mismatch (got " + sha + ")");
         }
-        File stage = new File(work, "stage");
-        unzip(zip, stage);
-        zip.delete();
-        File root = payloadRoot(stage, exeName);
-        return new Prepared(m, root);
+        return zip;
     }
 
     // ------------------------------------------------------------------ pieces

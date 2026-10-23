@@ -1,8 +1,10 @@
 name: release
 
-# Push a tag like v3.0.7 (it must equal the version in pom.xml) to build, sign and publish
-# the client, server and observer. Running apps pick it up from
+# Push a tag like v3.0.8 to build, sign and publish one release with the Windows client, server and
+# observer AND the macOS client. The tag must equal the version in pom.xml on main, observer-server
+# and macos. Running apps pick the new version up from
 # https://github.com/<repo>/releases/latest/download/update-<app>.properties
+# (macOS clients use update-client-mac-arm64.properties and update-client-mac-x64.properties).
 on:
   push:
     tags: ['v*']
@@ -11,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
     steps:
       - name: Check out main (client + server)
@@ -95,10 +97,90 @@ jobs:
           }
           Get-ChildItem release | Format-Table Name, Length
 
+      - name: Upload Windows release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: release/*
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Check out macos (macOS client)
+        uses: actions/checkout@v4
+        with:
+          path: macos
+          ref: macos
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: macos/pom.xml
+
+      - name: Tag must match the pom version on the macos branch
+        shell: bash
+        run: |
+          tag='${{ github.ref_name }}'
+          ver="${tag#v}"
+          pomver="$(python3 -c "import xml.etree.ElementTree as E; ns={'m': 'http://maven.apache.org/POM/4.0.0'}; print(E.parse('macos/pom.xml').getroot().find('m:version', ns).text)")"
+          if [ "$pomver" != "$ver" ]; then echo "macos/pom.xml is $pomver, tag is $ver"; exit 1; fi
+
+      - name: Build the client jar
+        working-directory: macos
+        run: mvn -B -DskipTests package -pl srd-client -am
+
+      - name: Package the macOS apps (arm64 and x64)
+        working-directory: macos
+        run: |
+          ver='${{ github.ref_name }}'
+          python3 build/package_macos.py --jar srd-client/target/SecureRemoteDesktopClient.jar \
+            --version "${ver#v}" --out '${{ github.workspace }}/release-macos'
+
+      - name: Write and sign the macOS manifests
+        shell: bash
+        env:
+          SRD_UPDATE_PRIVATE_KEY: ${{ secrets.SRD_UPDATE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SRD_UPDATE_PRIVATE_KEY" ]; then echo 'secret SRD_UPDATE_PRIVATE_KEY is not set'; exit 1; fi
+          tag='${{ github.ref_name }}'
+          ver="${tag#v}"
+          repo='${{ github.repository }}'
+          out='${{ github.workspace }}/release-macos'
+          cp='macos/srd-common/target/classes'
+          for arch in arm64 x64; do
+            zip="$out/SecureRemoteDesktopClient-$ver-macos-$arch.zip"
+            test -f "$zip"
+            url="https://github.com/$repo/releases/download/$tag/$(basename "$zip")"
+            mf="$out/update-client-mac-$arch.properties"
+            java -cp "$cp" com.srd.common.update.UpdateTool manifest "client-mac-$arch" "$ver" "$zip" "$url" "$mf"
+            java -cp "$cp" com.srd.common.update.UpdateTool sign "$mf"
+          done
+          ls -la "$out"
+
+      - name: Upload macOS release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: release-macos/*
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the Windows and macOS files
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
       - name: Publish release
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create '${{ github.ref_name }}' release/* --repo '${{ github.repository }}' `
+          gh release create '${{ github.ref_name }}' release/* --repo '${{ github.repository }}' \
             --title '${{ github.ref_name }}' --generate-notes

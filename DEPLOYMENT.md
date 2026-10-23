@@ -89,6 +89,14 @@ Then:
 
 To push the server address to many Macs, place a `client-config.properties` in `~/Library/Application Support/SecureRemoteDesktop/Client/` before the first start.
 
+**Updates:** a Mac client checks the latest release about every 4 hours (like the Windows client) and
+updates itself. Pushing a new version tag updates every Mac client; no one has to touch the Macs. It only
+updates an app installed in a folder you can write to (normally /Applications with an admin account).
+Settings and logs are kept. The app keeps the same signing identity (`com.srd.client`), so macOS should keep
+its Screen Recording and Accessibility permissions; if it asks again after an update, grant them once. To turn
+updates off on one Mac, put `update.enabled=false` in `~/Library/Application Support/SecureRemoteDesktop/Client/update.properties`.
+The first update to a version with this feature must be installed by hand, because the apps installed before it have no updater.
+
 macOS limitations:
 - Pen drawings may appear in Zoom/Meet shares; they are hidden only on Windows.
 - There is no VPN Guard status (it's a Windows app).

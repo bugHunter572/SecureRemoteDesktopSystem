@@ -2,6 +2,15 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
+## [Unreleased]
+
+### Added
+- **Automatic updates for the macOS client.** The Mac app checks the latest release, downloads the
+  version for its processor (arm64 or x64), checks the Ed25519 signature and SHA-256, replaces the
+  installed app and starts it again through its LaunchAgent. If the new version does not come up
+  healthy, the old app is put back. Mac apps installed before this version have no updater: install
+  the new version once by hand.
+
 ## [3.0.7] - 2026-10-21
 
 ### Added

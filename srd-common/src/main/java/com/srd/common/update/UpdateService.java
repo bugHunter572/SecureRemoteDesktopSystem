@@ -14,23 +14,29 @@ import java.nio.file.StandardCopyOption;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Keeps an installed Windows exe current: checks the signed release manifest now and then,
- * stages a newer package and hands over to {@code apply-update.ps1}, which swaps the files once
- * the app has exited and rolls back if the new version does not come up healthy.
+ * Keeps an installed app current: checks the signed release manifest now and then, stages a newer
+ * package and hands over to a swap helper once the app has exited. The helper rolls back if the new
+ * version does not come up healthy. Windows: {@code apply-update.ps1} swaps the files in the exe
+ * folder. macOS: {@code apply-update.sh} replaces the installed .app and starts it via its LaunchAgent.
  *
- * <p>Only active when running from the packaged exe (not from an IDE/jar). Optional
- * {@code update.properties} next to the exe: {@code update.enabled} (default true),
+ * <p>Only active when running from the packaged exe or an installed .app (not from an IDE/jar).
+ * Optional {@code update.properties} in the app folder: {@code update.enabled} (default true),
  * {@code update.baseUrl} (release download folder), {@code update.intervalMinutes} (default 240).
  */
 public final class UpdateService {
     public static final String DEFAULT_BASE_URL =
             "https://github.com/bugHunter572/SecureRemoteDesktopSystem/releases/latest/download/";
     private static final long HEALTHY_AFTER_SECONDS = 60;
+    /** launchd job that runs the macOS swap script once (not the app's own LaunchAgent). */
+    static final String MAC_JOB = "com.srd.client.update";
+    /** The app's LaunchAgent (KeepAlive): stopped before the app quits, so it can't relaunch the old copy. */
+    static final String MAC_AGENT = "com.srd.client";
 
     /** What the app provides to the updater. */
     public interface Host {
@@ -57,12 +63,17 @@ public final class UpdateService {
     public static synchronized void start(Host host) {
         if (started) return;
         started = true;
-        if (!Os.WINDOWS) {
-            Log.info("Auto-update: only on Windows");
+        if (!Os.WINDOWS && !Os.MAC) {
+            Log.info("Auto-update: only on Windows and macOS");
             return;
         }
-        File appDir = new File(System.getProperty("user.dir"));
-        if (!new File(appDir, host.exeName()).isFile()) {
+        File appDir = new File(System.getProperty("user.dir")); // the data folder on macOS (the launcher sets it)
+        String bundle = Os.MAC ? installedBundle() : null;
+        if (Os.MAC && bundle == null) {
+            Log.info("Auto-update off: not running from an installed .app");
+            return;
+        }
+        if (!Os.MAC && !new File(appDir, host.exeName()).isFile()) {
             Log.info("Auto-update off: not running from " + host.exeName());
             return;
         }
@@ -79,16 +90,16 @@ public final class UpdateService {
         long every = Math.max(15, parseLong(cfg.getProperty("update.intervalMinutes"), 240));
         long first = 2 + ThreadLocalRandom.current().nextLong(0, 10); // spread 25 PCs out
         final String baseUrl = base;
-        Threads.scheduler().scheduleWithFixedDelay(() -> checkNow(host, appDir, baseUrl), first, every, TimeUnit.MINUTES);
+        Threads.scheduler().scheduleWithFixedDelay(() -> checkNow(host, appDir, baseUrl, bundle), first, every, TimeUnit.MINUTES);
         Log.info("Auto-update on (" + host.app() + " " + BuildInfo.VERSION + ", every " + every + " min, " + baseUrl + ")");
     }
 
     /** One check; any failure is logged and retried at the next interval. */
-    static synchronized void checkNow(Host host, File appDir, String baseUrl) {
+    static synchronized void checkNow(Host host, File appDir, String baseUrl, String bundle) {
         try {
             PublicKey key = UpdateSignature.bundledPublicKey();
             Updater up = new Updater(key);
-            UpdateManifest m = up.check(baseUrl, host.app(), BuildInfo.VERSION);
+            UpdateManifest m = up.check(baseUrl, appName(host), BuildInfo.VERSION);
             if (m == null) return;
             File failed = new File(new File(appDir, "update"), "failed-" + m.version);
             if (failed.exists()) {
@@ -101,12 +112,81 @@ public final class UpdateService {
             }
             Log.info("Update " + BuildInfo.VERSION + " -> " + m.version + ": downloading " + m.url);
             File work = new File(new File(appDir, "update"), "work");
-            Updater.Prepared p = up.prepare(m, work, host.exeName());
-            launchApply(appDir, p.root, host.exeName(), m.version);
+            if (bundle != null) {
+                launchMacApply(appDir, bundle, up.downloadZip(m, work), m.version);
+            } else {
+                Updater.Prepared p = up.prepare(m, work, host.exeName());
+                launchApply(appDir, p.root, host.exeName(), m.version);
+            }
             Log.info("Update " + m.version + " staged; restarting to apply it");
             host.exitForUpdate();
         } catch (Throwable t) {
             Log.warn("Auto-update check failed: " + t);
+        }
+    }
+
+    /**
+     * The manifest name: on macOS one per processor, because the bundled JRE and audio helper are
+     * per architecture ({@code update-client-mac-arm64.properties}, {@code update-client-mac-x64.properties}).
+     */
+    static String appName(Host host) {
+        return Os.MAC ? host.app() + "-mac-" + macArch(System.getProperty("os.arch", "")) : host.app();
+    }
+
+    static String macArch(String osArch) {
+        String a = osArch.toLowerCase(Locale.ROOT);
+        return a.equals("aarch64") || a.equals("arm64") ? "arm64" : "x64";
+    }
+
+    /** The installed .app this process runs from, or null (not installed, translocated, on a disk image, or read-only). */
+    static String installedBundle() {
+        String app = System.getProperty("srd.appBundle", "");
+        if (!app.endsWith(".app") || app.contains("/AppTranslocation/") || app.startsWith("/Volumes/")) return null;
+        File parent = new File(app).getParentFile();
+        return parent != null && parent.canWrite() ? app : null;
+    }
+
+    /**
+     * macOS swap: {@code apply-update.sh} runs as its own one-off launchd job ({@code launchctl submit}),
+     * so it keeps going after this app has quit. The app's LaunchAgent is removed only after the job
+     * is submitted; if that fails, nothing has changed and the app keeps running.
+     */
+    static void launchMacApply(File appDir, String bundle, File zip, String version)
+            throws IOException, InterruptedException {
+        File upd = new File(appDir, "update");
+        upd.mkdirs();
+        File script = new File(upd, "apply-update.sh");
+        try (InputStream in = UpdateService.class.getResourceAsStream("/apply-update.sh")) {
+            if (in == null) throw new IOException("apply-update.sh missing from the jar");
+            Files.copy(in, script.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+        File console = new File(upd, "apply-console.log");
+        String plist = new File(System.getProperty("user.home"), "Library/LaunchAgents/" + MAC_AGENT + ".plist").getAbsolutePath();
+        launchctl("remove", MAC_JOB); // a finished job with the same label would block the submit
+        Process p = new ProcessBuilder("launchctl", "submit", "-l", MAC_JOB,
+                "-o", console.getAbsolutePath(), "-e", console.getAbsolutePath(), "--",
+                "/bin/bash", script.getAbsolutePath(),
+                "--app", bundle, "--zip", zip.getAbsolutePath(), "--version", version,
+                "--data", appDir.getAbsolutePath(), "--plist", plist)
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        if (!p.waitFor(15, TimeUnit.SECONDS) || p.exitValue() != 0) {
+            throw new IOException("launchctl submit failed; the app keeps running");
+        }
+        // Stop KeepAlive from relaunching the old bundle as this app quits; the script starts the new one.
+        launchctl("remove", MAC_AGENT);
+    }
+
+    private static void launchctl(String... args) {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("launchctl");
+        for (String a : args) cmd.add(a);
+        try {
+            new ProcessBuilder(cmd).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start().waitFor(5, TimeUnit.SECONDS);
+        } catch (IOException e) {
+            Log.warn("launchctl " + String.join(" ", args) + " failed: " + e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
