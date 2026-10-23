@@ -2,6 +2,12 @@
 
 All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 
+## [3.0.8] - 2026-10-23
+
+### Changed
+- Version bump only: the Windows client, server and observer are built and published again from the
+  same code as 3.0.7, so the automatic update check has a newer release to offer.
+
 ## [3.0.7] - 2026-10-21 (observer)
 
 ### Added
@@ -21,7 +27,6 @@ All notable changes to SecureRemoteDesktop. Dates are YYYY-MM-DD.
 - Notification Settings: Tags by IP range is now a table (Tag, From IP, To IP) with Add / Remove.
 - Mattermost: a PC that stays "ScreenApp Disconnected" is posted again every N seconds (Notification Settings; default = the screen interval, 0 = once).
 - Notification Settings: "Send test message" sits beside the Server URL.
-
 ## [3.0.7] - 2026-10-21
 
 ### Added
